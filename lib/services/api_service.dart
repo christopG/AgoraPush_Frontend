@@ -165,6 +165,13 @@ class ApiService {
       if (data != null && data['success'] == true) {
         final deputies = List<Map<String, dynamic>>.from(data['data'] ?? []);
         print('👥 ${deputies.length} députés récupérés');
+        
+        // Debug: afficher le premier député pour comprendre la structure
+        if (deputies.isNotEmpty) {
+          print('🔍 Structure JSON du premier député:');
+          print(jsonEncode(deputies.first));
+        }
+        
         return deputies;
       }
       
@@ -172,6 +179,50 @@ class ApiService {
     } catch (e) {
       print('❌ Erreur lors de la récupération des députés: $e');
       return null;
+    }
+  }
+
+  /// Récupère un député par circonscription
+  static Future<Map<String, dynamic>?> getDeputyByCirconscription(String idcirco) async {
+    try {
+      final data = await _makeRequest(
+        '/api/deputies/circonscription/$idcirco',
+        useCache: true,
+        cacheDuration: Duration(minutes: 15),
+      );
+
+      if (data != null && data['success'] == true) {
+        final deputy = data['data'] as Map<String, dynamic>?;
+        print('👤 Député récupéré pour circonscription $idcirco');
+        return deputy;
+      }
+      
+      return null;
+    } catch (e) {
+      print('❌ Erreur lors de la récupération du député par circonscription: $e');
+      return null;
+    }
+  }
+
+  /// Récupère les députés groupés par groupe politique
+  static Future<Map<String, dynamic>> getDeputiesByGroup() async {
+    try {
+      final data = await _makeRequest(
+        '/api/deputies/groups',
+        useCache: true,
+        cacheDuration: Duration(minutes: 20),
+      );
+
+      if (data != null && data['success'] == true) {
+        final groups = data['data'] as Map<String, dynamic>;
+        print('🏛️ ${groups.length} groupes politiques récupérés');
+        return groups;
+      }
+      
+      return {};
+    } catch (e) {
+      print('❌ Erreur lors de la récupération des groupes: $e');
+      return {};
     }
   }
 
