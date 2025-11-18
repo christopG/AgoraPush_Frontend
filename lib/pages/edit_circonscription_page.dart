@@ -356,12 +356,14 @@ class _EditCirconscriptionPageState extends State<EditCirconscriptionPage> {
       final success = await _databaseService.updateUserCirconscription(
         widget.user['username'],
         circonscriptionToSave,
+        idcirco: selectedCirconscription['id_circo'],
       );
 
       if (success) {
         // Mettre à jour la session
         await _sessionService.updateUserSession(
           circonscription: circonscriptionToSave,
+          idcirco: selectedCirconscription['id_circo'],
         );
 
         // Appeler le callback
@@ -374,7 +376,7 @@ class _EditCirconscriptionPageState extends State<EditCirconscriptionPage> {
               backgroundColor: Colors.green,
             ),
           );
-          Navigator.pop(context);
+          Navigator.pop(context, true); // Retourne true pour indiquer que la circonscription a été modifiée
         }
       } else {
         setState(() => _error = 'Erreur lors de la mise à jour de la circonscription');

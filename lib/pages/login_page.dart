@@ -246,6 +246,7 @@ class _LoginPageState extends State<LoginPage> with TickerProviderStateMixin {
         password: _signupPasswordController.text,
         recoveryPhrase: _recoveryPhraseController.text.trim(),
         circonscription: _selectedLibelle!,
+        idcirco: _selectedIdcirco,
       );
 
       if (mounted) {

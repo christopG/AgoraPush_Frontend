@@ -10,6 +10,7 @@ class SessionService {
   static const String _userIdKey = 'user_id';
   static const String _usernameKey = 'username';
   static const String _circonscriptionKey = 'circonscription';
+  static const String _idcircoKey = 'idcirco';
   static const String _createdAtKey = 'created_at';
 
   // Sauvegarder la session utilisateur
@@ -19,6 +20,9 @@ class SessionService {
     await prefs.setInt(_userIdKey, user['id']);
     await prefs.setString(_usernameKey, user['username']);
     await prefs.setString(_circonscriptionKey, user['circonscription']);
+    if (user['idcirco'] != null) {
+      await prefs.setString(_idcircoKey, user['idcirco']);
+    }
     await prefs.setString(_createdAtKey, user['created_at']);
   }
 
@@ -39,6 +43,7 @@ class SessionService {
     final userId = prefs.getInt(_userIdKey);
     final username = prefs.getString(_usernameKey);
     final circonscription = prefs.getString(_circonscriptionKey);
+    final idcirco = prefs.getString(_idcircoKey);
     final createdAt = prefs.getString(_createdAtKey);
 
     if (userId == null || username == null || circonscription == null || createdAt == null) {
@@ -60,6 +65,7 @@ class SessionService {
       'id': userId,
       'username': username,
       'circonscription': circonscription,
+      'idcirco': idcirco,
       'created_at': createdAt,
     };
   }
@@ -96,6 +102,7 @@ class SessionService {
   // Mettre à jour les informations utilisateur (en cas de modification)
   Future<void> updateUserSession({
     String? circonscription,
+    String? idcirco,
   }) async {
     final prefs = await SharedPreferences.getInstance();
     final isLoggedIn = prefs.getBool(_isLoggedInKey) ?? false;
@@ -104,6 +111,10 @@ class SessionService {
 
     if (circonscription != null) {
       await prefs.setString(_circonscriptionKey, circonscription);
+    }
+    
+    if (idcirco != null) {
+      await prefs.setString(_idcircoKey, idcirco);
     }
   }
 }

@@ -257,6 +257,16 @@ class DeputyProvider extends ChangeNotifier {
   Future<bool> testApiConnection() async {
     return await _repository.testConnection();
   }
+  
+  /// Mise à jour locale des groupes (pour optimisation)
+  void updateDeputiesByGroupLocal(Map<String, List<DeputyModel>> deputiesByGroup) {
+    _state = _state.copyWith(
+      deputiesByGroup: deputiesByGroup,
+      loading: false,
+      error: null,
+    );
+    notifyListeners();
+  }
 }
 
 // Providers globaux

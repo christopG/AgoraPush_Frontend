@@ -28,6 +28,11 @@ class DeputyModel {
   final int? nombreMandats;
   final DateTime? createdAt;
   final DateTime? updatedAt;
+  final String? catSocPro;
+  final String? uriHatvp;
+  final String? placeHemicycle;
+  final String? famillesPol;
+  final String? famillePolLibelleDb;
 
   DeputyModel({
     required this.id,
@@ -59,10 +64,30 @@ class DeputyModel {
     this.nombreMandats,
     this.createdAt,
     this.updatedAt,
+    this.catSocPro,
+    this.uriHatvp,
+    this.placeHemicycle,
+    this.famillesPol,
+    this.famillePolLibelleDb,
   });
 
   // Nom complet pour l'affichage
   String get fullName => '$prenom $nom'.trim();
+  
+  // Nom complet alternatif utilisé dans le code existant
+  String get nomComplet => '$prenom $nom'.trim();
+  
+  // Age calculé
+  int? get age {
+    if (dateNaissance == null) return null;
+    final now = DateTime.now();
+    final age = now.year - dateNaissance!.year;
+    if (now.month < dateNaissance!.month || 
+        (now.month == dateNaissance!.month && now.day < dateNaissance!.day)) {
+      return age - 1;
+    }
+    return age;
+  }
 
   // Circonscription complète pour l'affichage
   String get circonscriptionComplete {
@@ -112,6 +137,11 @@ class DeputyModel {
       nombreMandats: _parseInt(json['nombreMandats'] ?? json['nombre_mandats']),
       createdAt: _parseDate(json['createdAt'] ?? json['created_at']),
       updatedAt: _parseDate(json['updatedAt'] ?? json['updated_at']),
+      catSocPro: json['catSocPro']?.toString() ?? json['cat_soc_pro']?.toString(),
+      uriHatvp: json['uriHatvp']?.toString() ?? json['uri_hatvp']?.toString(),
+      placeHemicycle: json['placeHemicycle']?.toString() ?? json['place_hemicycle']?.toString(),
+      famillesPol: json['famillesPol']?.toString() ?? json['familles_pol']?.toString(),
+      famillePolLibelleDb: json['famillePolLibelleDb']?.toString() ?? json['famille_pol_libelle_db']?.toString(),
     );
   }
 
@@ -146,6 +176,11 @@ class DeputyModel {
       'nombreMandats': nombreMandats,
       'createdAt': createdAt?.toIso8601String(),
       'updatedAt': updatedAt?.toIso8601String(),
+      'catSocPro': catSocPro,
+      'uriHatvp': uriHatvp,
+      'placeHemicycle': placeHemicycle,
+      'famillesPol': famillesPol,
+      'famillePolLibelleDb': famillePolLibelleDb,
     };
   }
 

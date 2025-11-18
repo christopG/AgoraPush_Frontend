@@ -19,6 +19,7 @@ class _AccountPageState extends State<AccountPage> {
   String? _error;
   bool _notificationsEnabled = false;
   bool _loadingNotifications = false;
+  bool _circonscriptionModified = false; // Flag pour tracker les modifications
   
   // Variables admin
   final AdminAuthService _adminAuthService = AdminAuthService();
@@ -339,9 +340,17 @@ class _AccountPageState extends State<AccountPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFF8F9FA),
-      body: SafeArea(
+    return PopScope(
+      canPop: false,
+      onPopInvoked: (didPop) {
+        if (!didPop) {
+          print('DEBUG: AccountPage ferme avec _circonscriptionModified = $_circonscriptionModified');
+          Navigator.pop(context, _circonscriptionModified);
+        }
+      },
+      child: Scaffold(
+        backgroundColor: const Color(0xFFF8F9FA),
+        body: SafeArea(
         child: Column(
           children: [
             // Header avec icône de retour
@@ -350,7 +359,10 @@ class _AccountPageState extends State<AccountPage> {
               child: Row(
                 children: [
                   GestureDetector(
-                    onTap: () => Navigator.pop(context),
+                    onTap: () {
+                      print('DEBUG: Bouton retour cliqué avec _circonscriptionModified = $_circonscriptionModified');
+                      Navigator.pop(context, _circonscriptionModified);
+                    },
                     child: Container(
                       width: 50,
                       height: 50,
@@ -577,19 +589,27 @@ class _AccountPageState extends State<AccountPage> {
                         icon: Icons.location_on_rounded,
                         color: const Color(0xFF8FBC8F),
                         onTap: () async {
-                          await Navigator.push(
+                          final result = await Navigator.push(
                             context,
                             MaterialPageRoute(
                               builder: (context) => EditCirconscriptionPage(
                                 user: widget.user,
                                 onUpdate: (newCirconscription) {
+                                  print('DEBUG: Circonscription mise à jour: $newCirconscription');
                                   setState(() {
                                     widget.user['circonscription'] = newCirconscription;
+                                    _circonscriptionModified = true; // Marquer comme modifié
                                   });
                                 },
                               ),
                             ),
                           );
+                          // Si la circonscription a été modifiée, on met à jour le flag
+                          if (result == true) {
+                            setState(() {
+                              _circonscriptionModified = true;
+                            });
+                          }
                         },
                       ),
                       const SizedBox(height: 16),
@@ -690,8 +710,9 @@ class _AccountPageState extends State<AccountPage> {
             ),
           ],
         ),
-      ),
-    );
+      ), // SafeArea
+    ), // Scaffold
+    ); // PopScope
   }
 
   Widget _buildModernCard({

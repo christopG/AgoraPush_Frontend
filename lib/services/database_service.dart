@@ -20,7 +20,7 @@ class DatabaseService {
     String path = join(await getDatabasesPath(), 'agorapush.db');
     return await openDatabase(
       path,
-      version: 2,
+      version: 3,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -44,6 +44,9 @@ class DatabaseService {
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
     if (oldVersion < 2) {
       await db.execute('ALTER TABLE users ADD COLUMN notifications_enabled INTEGER DEFAULT 0');
+    }
+    if (oldVersion < 3) {
+      await db.execute('ALTER TABLE users ADD COLUMN idcirco TEXT');
     }
   }
 
@@ -74,6 +77,7 @@ class DatabaseService {
     required String password,
     required String recoveryPhrase,
     required String circonscription,
+    String? idcirco,
   }) async {
     try {
       final db = await database;
@@ -99,6 +103,7 @@ class DatabaseService {
         'salt': salt,
         'recovery_phrase': recoveryHash,
         'circonscription': circonscription,
+        'idcirco': idcirco,
         'notifications_enabled': 0,
         'created_at': DateTime.now().toIso8601String(),
       });
@@ -138,6 +143,7 @@ class DatabaseService {
           'id': user['id'],
           'username': user['username'],
           'circonscription': user['circonscription'],
+          'idcirco': user['idcirco'],
           'created_at': user['created_at'],
         };
       }
@@ -293,12 +299,17 @@ class DatabaseService {
   }
 
   // Mettre à jour la circonscription d'un utilisateur
-  Future<bool> updateUserCirconscription(String username, String circonscription) async {
+  Future<bool> updateUserCirconscription(String username, String circonscription, {String? idcirco}) async {
     try {
       final db = await database;
+      final updateData = {'circonscription': circonscription};
+      if (idcirco != null) {
+        updateData['idcirco'] = idcirco;
+      }
+      
       final result = await db.update(
         'users',
-        {'circonscription': circonscription},
+        updateData,
         where: 'username = ?',
         whereArgs: [username.toLowerCase()],
       );

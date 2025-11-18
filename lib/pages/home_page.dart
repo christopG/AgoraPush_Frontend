@@ -2,9 +2,14 @@ import 'package:flutter/material.dart';
 import 'account_page.dart';
 import 'my_stats_page.dart';
 import 'deputies_list_page.dart';
-import 'my_deputy_page.dart';
 import 'old_votes_page.dart';
+import 'admin_page.dart';
+import 'deputy_detail_page.dart';
 import '../services/api_service.dart';
+import '../services/admin_auth_service.dart';
+import '../services/session_service.dart';
+import '../providers/deputy_provider.dart';
+import '../data/models/deputy_model.dart';
 
 // CustomPainter pour créer une vague décorative
 class WavePainter extends CustomPainter {
@@ -77,11 +82,19 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   int? deputiesCount; // Variable pour stocker le nombre de députés
+  DeputyModel? userDeputy; // Variable pour stocker le député de l'utilisateur
+  bool isLoadingDeputy = false; // État de chargement du député
+  
+  // Variables admin
+  final AdminAuthService _adminAuthService = AdminAuthService();
+  bool? _isAdmin;
 
   @override
   void initState() {
     super.initState();
     _loadDeputiesCount(); // Charger le nombre de députés au démarrage
+    _loadUserDeputy(); // Charger le député de l'utilisateur
+    _checkAdminStatus(); // Vérifier le statut admin
   }
 
   // Méthode pour charger le nombre de députés depuis le backend
@@ -108,27 +121,189 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  // Méthode pour charger le député de l'utilisateur basé sur sa circonscription
+  Future<void> _loadUserDeputy() async {
+    final idcirco = widget.user['idcirco'];
+    print('🔍 Tentative de chargement du député pour idcirco: $idcirco');
+    print('📊 Données utilisateur: ${widget.user}');
+    
+    if (idcirco == null || idcirco.toString().isEmpty) {
+      print('❌ Aucun idcirco trouvé pour l\'utilisateur');
+      return;
+    }
+    
+    setState(() {
+      isLoadingDeputy = true;
+    });
+    
+    try {
+      // Charger tous les députés (comme dans deputies_list_page)
+      print('📋 Chargement de tous les députés pour recherche locale...');
+      final allDeputies = await deputyRepositoryProvider.getAllDeputies();
+      
+      if (allDeputies.isEmpty) {
+        print('⚠️ Aucun député récupéré de l\'API');
+        setState(() {
+          isLoadingDeputy = false;
+        });
+        return;
+      }
+      
+      // Normaliser l'idcirco pour la recherche
+      final normalizedIdcirco = _normalizeIdcirco(idcirco.toString());
+      print('🔄 idcirco normalisé: $normalizedIdcirco');
+      print('🔍 Recherche locale parmi ${allDeputies.length} députés...');
+      
+      // Chercher le député correspondant (même logique que deputies_list_page)
+      DeputyModel? foundDeputy;
+      
+      for (final deputy in allDeputies) {
+        // Debug pour les premiers députés
+        if (allDeputies.indexOf(deputy) < 3) {
+          print('   Deputy ${allDeputies.indexOf(deputy) + 1}: idcirco="${deputy.idcirco}", codeCirco="${deputy.codeCirco}", nom="${deputy.nom}"');
+        }
+        
+        // Vérifier plusieurs formats d'identifiants de circonscription
+        if (deputy.idcirco == idcirco.toString() ||
+            deputy.codeCirco == idcirco.toString() ||
+            deputy.idcirco == normalizedIdcirco ||
+            deputy.codeCirco == normalizedIdcirco) {
+          foundDeputy = deputy;
+          print('✅ Député trouvé: ${deputy.fullName}');
+          break;
+        }
+      }
+      
+      if (foundDeputy != null && mounted) {
+        print('✅ Député chargé avec succès: ${foundDeputy.fullName}');
+        setState(() {
+          userDeputy = foundDeputy;
+          isLoadingDeputy = false;
+        });
+      } else if (mounted) {
+        print('⚠️ Aucun député trouvé pour l\'idcirco: $idcirco');
+        // Debug: afficher quelques exemples de députés pour comprendre le format
+        print('🔍 Exemples de députés disponibles:');
+        for (int i = 0; i < (allDeputies.length > 5 ? 5 : allDeputies.length); i++) {
+          final deputy = allDeputies[i];
+          print('   ${deputy.nom}: idcirco="${deputy.idcirco}", codeCirco="${deputy.codeCirco}"');
+        }
+        setState(() {
+          isLoadingDeputy = false;
+        });
+      }
+    } catch (e) {
+      print('❌ Erreur lors du chargement du député: $e');
+      if (mounted) {
+        setState(() {
+          isLoadingDeputy = false;
+        });
+      }
+    }
+  }
+
+  // Nouvelle méthode pour recharger les données utilisateur depuis la session
+  Future<void> _reloadUserData() async {
+    try {
+      print('🔄 Rechargement des données utilisateur depuis la session...');
+      final sessionService = SessionService();
+      final userSession = await sessionService.getUserSession();
+      
+      if (userSession != null) {
+        print('📊 Nouvelles données utilisateur: $userSession');
+        setState(() {
+          // Mettre à jour les données utilisateur
+          widget.user.clear();
+          widget.user.addAll(userSession);
+        });
+        print('✅ Données utilisateur mises à jour');
+      } else {
+        print('⚠️ Aucune session utilisateur trouvée');
+      }
+    } catch (e) {
+      print('❌ Erreur lors du rechargement des données utilisateur: $e');
+    }
+  }
+
+  // Fonction pour normaliser l'idcirco (copiée depuis deputies_list_page)
+  String _normalizeIdcirco(String idcirco) {
+    // Si l'idcirco est déjà au format XX-XX, on le retourne tel quel
+    if (idcirco.contains('-')) {
+      return idcirco;
+    }
+
+    // Sinon, on convertit XXXX vers XX-XX
+    if (idcirco.length >= 4) {
+      final dep = idcirco.substring(0, 2);
+      final circo = idcirco.substring(2);
+      return '$dep-$circo';
+    }
+
+    return idcirco; // Retour par défaut si le format n'est pas reconnu
+  }
+
+  // Vérifier le statut admin
+  Future<void> _checkAdminStatus() async {
+    try {
+      final isAdmin = await _adminAuthService.isAdminAuthenticated();
+      if (mounted) {
+        setState(() {
+          _isAdmin = isAdmin;
+        });
+      }
+    } catch (e) {
+      print('Erreur lors de la vérification admin: $e');
+      if (mounted) {
+        setState(() {
+          _isAdmin = false;
+        });
+      }
+    }
+  }
+
+  String _getDeputyPhotoUrl(String deputyId) {
+    // Supprime le préfixe "PA" de l'ID pour obtenir l'URL de la photo
+    final photoId = deputyId.replaceFirst('PA', '');
+    return 'https://www.assemblee-nationale.fr/dyn/static/tribun/17/photos/carre/$photoId.jpg';
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF8F9FA),
-      body: SafeArea(
-        child: CustomScrollView(
-          slivers: [
-            // Header avec profil et navigation
-            SliverToBoxAdapter(
-              child: _buildHeader(context),
-            ),
+      body: Stack(
+        children: [
+          SafeArea(
+            child: CustomScrollView(
+              slivers: [
+                // Header avec profil et navigation
+                SliverToBoxAdapter(
+                  child: _buildHeader(context),
+                ),
 
-            // Grid de cartes avec les 4 tuiles
-            SliverPadding(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-              sliver: SliverToBoxAdapter(
-                child: _buildMainGrid(),
-              ),
+                // Grid de cartes avec les 4 tuiles
+                SliverPadding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                  sliver: SliverToBoxAdapter(
+                    child: _buildMainGrid(),
+                  ),
+                ),
+
+                // Section Footer avec informations
+                SliverToBoxAdapter(
+                  child: _buildFooterSection(),
+                ),
+
+                // Espacement pour le bandeau du bas
+                const SliverToBoxAdapter(
+                  child: SizedBox(height: 20),
+                ),
+              ],
             ),
-          ],
-        ),
+          ),
+
+
+        ],
       ),
     );
   }
@@ -427,10 +602,16 @@ class _HomePageState extends State<HomePage> {
 
   Widget _buildMyDeputyCard() {
     return GestureDetector(
-      onTap: () => Navigator.push(
-        context,
-        MaterialPageRoute(builder: (context) => const MyDeputyPage()),
-      ),
+      onTap: () {
+        if (userDeputy != null) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => DeputyDetailPage(deputy: userDeputy!),
+            ),
+          );
+        }
+      },
       child: Stack(
         children: [
           // Container principal de la carte
@@ -458,21 +639,120 @@ class _HomePageState extends State<HomePage> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  // Icône par défaut
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.2),
-                      borderRadius: BorderRadius.circular(15),
-                    ),
-                    child: const Icon(
-                      Icons.how_to_vote_rounded,
-                      color: Colors.white,
-                      size: 24,
-                    ),
+                  // Photo du député en haut à gauche
+                  Row(
+                    children: [
+                      if (isLoadingDeputy)
+                        Container(
+                          width: 50,
+                          height: 50,
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.2),
+                            borderRadius: BorderRadius.circular(15),
+                          ),
+                          child: const Center(
+                            child: SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                              ),
+                            ),
+                          ),
+                        )
+                      else if (userDeputy != null)
+                        Container(
+                          width: 50,
+                          height: 50,
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(15),
+                            border: Border.all(
+                              color: Colors.white.withOpacity(0.3),
+                              width: 2,
+                            ),
+                          ),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(13),
+                            child: Image.network(
+                              _getDeputyPhotoUrl(userDeputy!.id),
+                              fit: BoxFit.cover,
+                              errorBuilder: (context, error, stackTrace) {
+                                return Container(
+                                  color: Colors.white.withOpacity(0.2),
+                                  child: const Icon(
+                                    Icons.person,
+                                    color: Colors.white,
+                                    size: 25,
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                        )
+                      else
+                        Container(
+                          width: 50,
+                          height: 50,
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.2),
+                            borderRadius: BorderRadius.circular(15),
+                          ),
+                          child: const Icon(
+                            Icons.how_to_vote_rounded,
+                            color: Colors.white,
+                            size: 25,
+                          ),
+                        ),
+                    ],
                   ),
 
-                  // Titre
+                  // Prénom et nom entre l'image et le titre
+                  if (userDeputy != null)
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Prénom
+                        Text(
+                          userDeputy!.prenom,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.white,
+                            height: 1.1,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 2),
+                        // Nom
+                        Text(
+                          userDeputy!.nom,
+                          style: const TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w500,
+                            color: Colors.white,
+                            height: 1.1,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    )
+                  else
+                    const Text(
+                      'Aucun député trouvé',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w500,
+                        color: Colors.white,
+                        height: 1.1,
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+
+                  // Titre en bas à gauche
                   const Text(
                     'Mon député',
                     style: TextStyle(
@@ -771,14 +1051,23 @@ class _HomePageState extends State<HomePage> {
 
           // Profil utilisateur avec style Art1Gallery
           GestureDetector(
-            onTap: () {
-              // Navigation vers la page de compte
-              Navigator.push(
+            onTap: () async {
+              // Navigation vers la page de compte et rafraîchir le statut admin au retour
+              final result = await Navigator.push(
                 context,
                 MaterialPageRoute(
                   builder: (context) => AccountPage(user: widget.user),
                 ),
               );
+              print('DEBUG: Retour d\'AccountPage avec result = $result');
+              // Vérifier à nouveau le statut admin après le retour
+              _checkAdminStatus();
+              // Recharger les données du député seulement si la circonscription a été modifiée
+              if (result == true) {
+                print('DEBUG: Rechargement des données utilisateur et du député');
+                await _reloadUserData(); // Recharger les données utilisateur d'abord
+                _loadUserDeputy(); // Puis recharger le député
+              }
             },
             child: Container(
               width: 50,
@@ -810,6 +1099,207 @@ class _HomePageState extends State<HomePage> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildFooterSection() {
+    return Container(
+      margin: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(15),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 20,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Expanded(
+              child: _buildFooterIcon(
+                  'FAQ', Icons.help_outline_rounded, _showFAQBottomSheet)),
+          Expanded(
+              child: _buildFooterIcon('À propos',
+                  Icons.info_outline_rounded, _showAboutBottomSheet)),
+          Expanded(
+              child: _buildFooterIcon('Contact',
+                  Icons.contact_mail_outlined, _showContactBottomSheet)),
+          Expanded(
+              child: _buildFooterIcon('Soutenir',
+                  Icons.favorite_outline_rounded, _showSupportBottomSheet)),
+          if (_isAdmin == true)
+            Expanded(
+              child: _buildFooterIcon(
+                'Admin',
+                Icons.admin_panel_settings_outlined,
+                () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                      builder: (context) => const AdminPage()),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFooterIcon(String label, IconData icon, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: const Color(0xFF556B2F).withOpacity(0.1),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(
+                icon,
+                color: const Color(0xFF556B2F),
+                size: 18,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              label,
+              style: const TextStyle(
+                fontSize: 9,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF2C3E50),
+              ),
+              textAlign: TextAlign.center,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // Volets simples
+  void _showFAQBottomSheet() {
+    _showSimpleBottomSheet('FAQ', 'Foire aux Questions', Icons.help_outline);
+  }
+
+  void _showAboutBottomSheet() {
+    _showSimpleBottomSheet('À Propos', 'À propos d\'AgoraPush', Icons.info_outline);
+  }
+
+  void _showContactBottomSheet() {
+    _showSimpleBottomSheet('Contact', 'Nous contacter', Icons.contact_mail_outlined);
+  }
+
+  void _showSupportBottomSheet() {
+    _showSimpleBottomSheet('Soutenir', 'Soutenir le projet', Icons.favorite_outline_rounded);
+  }
+
+  void _showSimpleBottomSheet(String title, String subtitle, IconData icon) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        height: 300,
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: Column(
+          children: [
+            Container(
+              width: 40,
+              height: 4,
+              margin: const EdgeInsets.symmetric(vertical: 12),
+              decoration: BoxDecoration(
+                color: Colors.grey[300],
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(20),
+              child: Row(
+                children: [
+                  Icon(
+                    icon,
+                    size: 32,
+                    color: const Color(0xFF556B2F),
+                  ),
+                  const SizedBox(width: 12),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: const TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF2C3E50),
+                        ),
+                      ),
+                      Text(
+                        subtitle,
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: Colors.grey[600],
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(20),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF556B2F).withOpacity(0.1),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.construction,
+                        size: 60,
+                        color: Color(0xFF556B2F),
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    Text(
+                      'Section en développement',
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF2C3E50),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      'Cette section sera bientôt disponible.\nMerci de votre patience !',
+                      style: TextStyle(
+                        fontSize: 16,
+                        color: Colors.grey[600],
+                        height: 1.4,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
