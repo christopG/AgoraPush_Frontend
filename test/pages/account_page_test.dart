@@ -10,14 +10,19 @@ void main() {
       MockHelpers.initializeMocks();
     });
 
+    tearDown(() async {
+      await MockHelpers.resetMocks();
+    });
+
     testWidgets('should create AccountPage without crashing', (WidgetTester tester) async {
       // Test basique - juste créer la page sans planter
       await tester.pumpWidget(MaterialApp(
         home: AccountPage(user: MockHelpers.testUser),
       ));
 
-      // Pump une seule fois pour le rendu initial
+      // Attendre un court moment pour le rendu initial seulement
       await tester.pump();
+      await tester.pump(Duration(milliseconds: 100));
 
       // Assert - La page existe
       expect(find.byType(AccountPage), findsOneWidget);
@@ -39,9 +44,12 @@ void main() {
       ));
       await tester.pump();
 
-      // Le bouton retour devrait être présent
+      // Le bouton retour devrait être présent immédiatement
       expect(find.byIcon(Icons.arrow_back_rounded), findsOneWidget);
-    });
+      
+      // Force completion of any pending async operations
+      await tester.binding.delayed(Duration.zero);
+    }, timeout: Timeout(Duration(seconds: 5)));
 
     testWidgets('should display username', (WidgetTester tester) async {
       await tester.pumpWidget(MaterialApp(
@@ -93,7 +101,8 @@ void main() {
 
       // Vérifier la structure de base Scaffold
       expect(find.byType(Scaffold), findsOneWidget);
-      expect(find.byType(AppBar), findsOneWidget);
+      // Note: AccountPage doesn't use AppBar, it uses custom header
+      expect(find.byType(SafeArea), findsOneWidget);
     });
   });
 }
