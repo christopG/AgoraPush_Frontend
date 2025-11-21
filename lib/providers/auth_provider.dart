@@ -166,6 +166,20 @@ class DeputyRepository {
     }
   }
   
+  /// Récupère tous les organes politiques avec leurs couleurs
+  Future<List<dynamic>> getAllOrganes() async {
+    print('🌐 Récupération des organes politiques...');
+    
+    try {
+      final organes = await ApiService.getAllOrganes();
+      print('✅ ${organes.length} organes récupérés');
+      return organes;
+    } catch (e) {
+      print('❌ Erreur lors de la récupération des organes: $e');
+      throw Exception('Erreur réseau: Impossible de charger les organes politiques.');
+    }
+  }
+  
   /// Normalise l'idcirco pour améliorer les recherches
   String _normalizeIdcirco(String idcirco) {
     // Si l'idcirco est déjà au format XX-XX, on le retourne tel quel

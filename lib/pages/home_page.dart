@@ -154,13 +154,18 @@ class _HomePageState extends State<HomePage> {
       print('🔄 idcirco normalisé: $normalizedIdcirco');
       print('🔍 Recherche locale parmi ${allDeputies.length} députés...');
       
-      // Chercher le député correspondant (même logique que deputies_list_page)
+      // Chercher le député correspondant ACTIF uniquement
       DeputyModel? foundDeputy;
       
       for (final deputy in allDeputies) {
         // Debug pour les premiers députés
         if (allDeputies.indexOf(deputy) < 3) {
-          print('   Deputy ${allDeputies.indexOf(deputy) + 1}: idcirco="${deputy.idcirco}", codeCirco="${deputy.codeCirco}", nom="${deputy.nom}"');
+          print('   Deputy ${allDeputies.indexOf(deputy) + 1}: idcirco="${deputy.idcirco}", codeCirco="${deputy.codeCirco}", nom="${deputy.nom}", active=${deputy.active}');
+        }
+        
+        // IMPORTANT: Vérifier que le député est ACTIF (active == 1)
+        if (deputy.active != 1) {
+          continue; // Ignorer les députés inactifs
         }
         
         // Vérifier plusieurs formats d'identifiants de circonscription
@@ -169,24 +174,25 @@ class _HomePageState extends State<HomePage> {
             deputy.idcirco == normalizedIdcirco ||
             deputy.codeCirco == normalizedIdcirco) {
           foundDeputy = deputy;
-          print('✅ Député trouvé: ${deputy.fullName}');
+          print('✅ Député ACTIF trouvé: ${deputy.fullName} (active=${deputy.active})');
           break;
         }
       }
       
       if (foundDeputy != null && mounted) {
-        print('✅ Député chargé avec succès: ${foundDeputy.fullName}');
+        print('✅ Député ACTIF chargé avec succès: ${foundDeputy.fullName} (active=${foundDeputy.active})');
         setState(() {
           userDeputy = foundDeputy;
           isLoadingDeputy = false;
         });
       } else if (mounted) {
-        print('⚠️ Aucun député trouvé pour l\'idcirco: $idcirco');
-        // Debug: afficher quelques exemples de députés pour comprendre le format
-        print('🔍 Exemples de députés disponibles:');
-        for (int i = 0; i < (allDeputies.length > 5 ? 5 : allDeputies.length); i++) {
-          final deputy = allDeputies[i];
-          print('   ${deputy.nom}: idcirco="${deputy.idcirco}", codeCirco="${deputy.codeCirco}"');
+        print('⚠️ Aucun député ACTIF trouvé pour l\'idcirco: $idcirco');
+        // Debug: afficher quelques exemples de députés actifs pour comprendre le format
+        print('🔍 Exemples de députés ACTIFS disponibles:');
+        final activeDeputies = allDeputies.where((d) => d.active == 1).take(5).toList();
+        for (int i = 0; i < activeDeputies.length; i++) {
+          final deputy = activeDeputies[i];
+          print('   ${deputy.nom}: idcirco="${deputy.idcirco}", codeCirco="${deputy.codeCirco}", active=${deputy.active}');
         }
         setState(() {
           isLoadingDeputy = false;

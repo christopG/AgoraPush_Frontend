@@ -33,6 +33,8 @@ class DeputyModel {
   final String? placeHemicycle;
   final String? famillesPol;
   final String? famillePolLibelleDb;
+  final String? legislature;
+  final int? active;
 
   DeputyModel({
     required this.id,
@@ -69,6 +71,8 @@ class DeputyModel {
     this.placeHemicycle,
     this.famillesPol,
     this.famillePolLibelleDb,
+    this.legislature,
+    this.active,
   });
 
   // Nom complet pour l'affichage
@@ -110,19 +114,20 @@ class DeputyModel {
       nom: json['nom']?.toString() ?? '',
       prenom: json['prenom']?.toString() ?? '',
       dep: json['dep']?.toString(),
-      codeCirco: json['codeCirco']?.toString() ?? json['code_circo']?.toString(),
-      idcirco: json['idcirco_complet']?.toString() ?? 
+      codeCirco: json['codeCirco']?.toString() ?? json['code_circo']?.toString() ?? json['num_circo']?.toString(),
+      idcirco: json['idcirco_complet']?.toString() ??  // Priorité au champ calculé avec padding
+               json['code_circo_complet']?.toString() ?? 
                json['idcirco']?.toString() ?? 
                json['id_circo']?.toString() ??
                _buildIdCirco(json['dep']?.toString(), json['codeCirco']?.toString()),
-      libelle: json['libelle']?.toString(),
+      libelle: json['libelle']?.toString() ?? json['libelle_crico']?.toString(),
       libelleAb: json['libelleAb']?.toString() ?? json['libelle_abrege']?.toString(),
       groupePolitiqueRef: json['groupePolitiqueRef']?.toString() ?? json['groupe_politique_ref']?.toString(),
       famillePolLibelle: json['famillePolLibelle']?.toString() ?? json['famille_pol_libelle']?.toString(),
       qualitePrincipal: json['qualitePrincipal']?.toString() ?? json['qualite_principale']?.toString(),
       organesRefs: json['organesRefs']?.toString() ?? json['organes_refs']?.toString(),
       mandatsResume: json['mandatsResume']?.toString() ?? json['mandats_resume']?.toString(),
-      profession: json['profession']?.toString(),
+      profession: json['profession']?.toString() ?? json['job']?.toString(),
       villeNaissance: json['villeNaissance']?.toString() ?? json['ville_naissance']?.toString(),
       mail: json['mail']?.toString(),
       collaborateurs: json['collaborateurs']?.toString(),
@@ -141,7 +146,11 @@ class DeputyModel {
       uriHatvp: json['uriHatvp']?.toString() ?? json['uri_hatvp']?.toString(),
       placeHemicycle: json['placeHemicycle']?.toString() ?? json['place_hemicycle']?.toString(),
       famillesPol: json['famillesPol']?.toString() ?? json['familles_pol']?.toString(),
-      famillePolLibelleDb: json['famillePolLibelleDb']?.toString() ?? json['famille_pol_libelle_db']?.toString(),
+      famillePolLibelleDb: json['famillePolLibelleDb']?.toString() ?? 
+                           json['famille_pol_libelle_db']?.toString() ?? 
+                           json['groupe']?.toString(),
+      legislature: json['legislature']?.toString(),
+      active: _parseInt(json['active']),
     );
   }
 
@@ -181,6 +190,8 @@ class DeputyModel {
       'placeHemicycle': placeHemicycle,
       'famillesPol': famillesPol,
       'famillePolLibelleDb': famillePolLibelleDb,
+      'legislature': legislature,
+      'active': active,
     };
   }
 

@@ -226,6 +226,28 @@ class ApiService {
     }
   }
 
+  /// Récupère tous les organes politiques avec leurs couleurs
+  static Future<List<dynamic>> getAllOrganes() async {
+    try {
+      final data = await _makeRequest(
+        '/api/organes',
+        useCache: true,
+        cacheDuration: Duration(hours: 24), // Cache long car les couleurs changent rarement
+      );
+
+      if (data != null && data['success'] == true) {
+        final organes = data['data'] as List<dynamic>;
+        print('🎨 ${organes.length} organes récupérés');
+        return organes;
+      }
+      
+      return [];
+    } catch (e) {
+      print('❌ Erreur lors de la récupération des organes: $e');
+      return [];
+    }
+  }
+
   /// Nettoie le cache local
   static void clearCache() {
     _cache.clear();

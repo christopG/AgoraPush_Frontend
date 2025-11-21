@@ -24,9 +24,46 @@ class _DeputiesListPageState extends State<DeputiesListPage> {
   ViewMode _currentMode = ViewMode.search;
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
+  final ScrollController _scrollController = ScrollController();
   List<DeputyModel> _searchResults = [];
   List<DeputyModel> _allDeputies = [];
   bool _isLoadingAllDeputies = false;
+  bool _showHeader = true; // Pour contrôler l'affichage du header
+  double _lastScrollOffset = 0.0;
+  
+  // Filter states
+  bool _showOnlyActive = true; // Actif par défaut
+  String? _selectedLegislature;
+  String? _selectedDepartment;
+  String? _selectedGroup;
+  String? _selectedJob;
+  RangeValues? _ageRange;
+  RangeValues? _experienceRange;
+  RangeValues? _loyauteRange;
+  RangeValues? _majoriteRange;
+  RangeValues? _participationRange;
+  RangeValues? _participationSpecialiteRange;
+  bool _showFilters = false;
+  
+  // Available filter options (will be populated from data)
+  List<String> _legislatures = [];
+  List<String> _departments = [];
+  List<String> _groups = [];
+  List<String> _jobs = [];
+  
+  // Min/Max values for numeric filters
+  int _minAge = 0;
+  int _maxAge = 100;
+  int _minExperience = 0;
+  int _maxExperience = 50;
+  double _minLoyaute = 0.0;
+  double _maxLoyaute = 1.0;
+  double _minMajorite = 0.0;
+  double _maxMajorite = 1.0;
+  double _minParticipation = 0.0;
+  double _maxParticipation = 1.0;
+  double _minParticipationSpecialite = 0.0;
+  double _maxParticipationSpecialite = 1.0;
 
   // Variables pour la carte
   List<Polygon> _circonscriptions = [];
@@ -40,11 +77,13 @@ class _DeputiesListPageState extends State<DeputiesListPage> {
   DeputyModel? _selectedDeputy;
   String? _selectedCirconscriptionName;
   
+  // Couleurs des groupes politiques
+  Map<String, String> _groupColors = {};
+  
   // Variables pour l'optimisation des performances
   static final Map<String, List<DeputyModel>> _deputiesCache = {};
   static final Map<String, List<Polygon>> _geoJsonCache = {};
   static final Map<String, List<Map<String, dynamic>>> _circonscriptionDataCache = {};
-  static final Map<String, List<DeputyModel>> _groupsCache = {}; // Cache pour les groupes
   static DateTime? _lastCacheUpdate;
   static DateTime? _lastGroupsUpdate; // Cache timestamp pour les groupes
   
@@ -61,6 +100,7 @@ class _DeputiesListPageState extends State<DeputiesListPage> {
   void initState() {
     super.initState();
     _searchFocusNode.addListener(_onSearchFocusChange);
+    _scrollController.addListener(_onScroll);
     
     // Chargement instantané depuis le cache puis mise à jour en arrière-plan
     _loadFromCacheFirst();
@@ -82,13 +122,15 @@ class _DeputiesListPageState extends State<DeputiesListPage> {
         print('⚡ Chargement instantané depuis le cache');
         setState(() {
           _allDeputies = _deputiesCache[cacheKey]!;
-          _searchResults = _allDeputies;
           _circonscriptions = _geoJsonCache['geojson']!;
           _circonscriptionData = _circonscriptionDataCache['data']!;
           _isLoadingAllDeputies = false;
           _isLoadingGeoJson = false;
           _isInitialized = true;
         });
+        
+        // Apply initial filters (active only by default)
+        _applyFilters();
         return;
       }
       
@@ -109,18 +151,62 @@ class _DeputiesListPageState extends State<DeputiesListPage> {
     if (!_isInitialized) {
       // Si pas de cache, charger normalement mais de manière optimisée
       await Future.wait([
-        _loadGeoJsonDataOptimized(),
+        _loadGroupColors(),
         _loadAllDeputiesOptimized(),
       ]);
+      await _loadGeoJsonDataOptimized(); // Après avoir chargé les députés et couleurs
       _loadInitialData();
     } else {
       // Si cache présent, mise à jour silencieuse en arrière-plan
       _updateCacheInBackground();
     }
   }
+  
+  /// Charge les couleurs des groupes politiques depuis les organes
+  Future<void> _loadGroupColors() async {
+    try {
+      print('🎨 Début chargement des couleurs de groupes...');
+      final organes = await deputyRepositoryProvider.getAllOrganes();
+      print('📊 ${organes.length} organes reçus');
+      final Map<String, String> colors = {};
+      
+      for (final organe in organes) {
+        final libelle = organe['libelle']?.toString();
+        final couleur = organe['couleur_associee']?.toString();
+        if (libelle != null && couleur != null && couleur.isNotEmpty) {
+          colors[libelle] = couleur;
+          print('   ✓ $libelle → $couleur');
+        }
+      }
+      
+      setState(() {
+        _groupColors = colors;
+      });
+      
+      print('✅ ${colors.length} couleurs de groupes chargées et appliquées');
+    } catch (e) {
+      print('⚠️ Erreur chargement couleurs groupes: $e');
+    }
+  }
 
   void _onSearchFocusChange() {
     setState(() {}); // Met à jour l'affichage quand le focus change
+  }
+  
+  void _onScroll() {
+    final currentOffset = _scrollController.offset;
+    
+    if (currentOffset > _lastScrollOffset && currentOffset > 50) {
+      if (_showHeader) {
+        setState(() => _showHeader = false);
+      }
+    } else if (currentOffset < _lastScrollOffset || currentOffset < 50) {
+      if (!_showHeader) {
+        setState(() => _showHeader = true);
+      }
+    }
+    
+    _lastScrollOffset = currentOffset;
   }
 
   void _loadInitialData() async {
@@ -156,6 +242,133 @@ class _DeputiesListPageState extends State<DeputiesListPage> {
     return idcirco; // Retour par défaut si le format n'est pas reconnu
   }
   
+  /// Populates filter options from deputies list
+  void _populateFilterOptions(List<DeputyModel> deputies) {
+    if (deputies.isEmpty) {
+      print('⚠️ Aucun député à traiter pour les filtres');
+      return;
+    }
+    
+    final Set<String> legislatureSet = {};
+    final Set<String> departmentSet = {};
+    final Set<String> groupSet = {};
+    final Set<String> jobSet = {};
+    
+    // Calculate min/max for numeric filters - start with first valid values
+    int? minAge;
+    int? maxAge;
+    int? minExp;
+    int? maxExp;
+    double? minLoy;
+    double? maxLoy;
+    double? minMaj;
+    double? maxMaj;
+    double? minPart;
+    double? maxPart;
+    double? minPartSpec;
+    double? maxPartSpec;
+    
+    // Debug: check first deputy data
+    if (deputies.isNotEmpty) {
+      final firstDeputy = deputies[0];
+      print('🔍 Premier député:');
+      print('  id: "${firstDeputy.id}"');
+      print('  legislature: "${firstDeputy.legislature}"');
+      print('  dep: "${firstDeputy.dep}"');
+      print('  groupe: "${firstDeputy.famillePolLibelleDb}"');
+      print('  profession: "${firstDeputy.profession}"');
+    }
+    
+    int legislatureCount = 0;
+    int depCount = 0;
+    int groupCount = 0;
+    int jobCount = 0;
+    
+    for (final deputy in deputies) {
+      // Collect filter values (protect against string "null")
+      if (deputy.legislature != null && deputy.legislature!.isNotEmpty && deputy.legislature != 'null') {
+        legislatureSet.add(deputy.legislature!);
+        legislatureCount++;
+      }
+      if (deputy.dep != null && deputy.dep!.isNotEmpty && deputy.dep != 'null') {
+        departmentSet.add(deputy.dep!);
+        depCount++;
+      }
+      if (deputy.famillePolLibelleDb != null && deputy.famillePolLibelleDb!.isNotEmpty && deputy.famillePolLibelleDb != 'null') {
+        groupSet.add(deputy.famillePolLibelleDb!);
+        groupCount++;
+      }
+      if (deputy.profession != null && deputy.profession!.isNotEmpty && deputy.profession != 'null') {
+        jobSet.add(deputy.profession!);
+        jobCount++;
+      }
+      
+      // Calculate ranges
+      if (deputy.age != null) {
+        minAge = minAge == null ? deputy.age! : (deputy.age! < minAge ? deputy.age! : minAge);
+        maxAge = maxAge == null ? deputy.age! : (deputy.age! > maxAge ? deputy.age! : maxAge);
+      }
+      if (deputy.experienceDepute != null) {
+        minExp = minExp == null ? deputy.experienceDepute! : (deputy.experienceDepute! < minExp ? deputy.experienceDepute! : minExp);
+        maxExp = maxExp == null ? deputy.experienceDepute! : (deputy.experienceDepute! > maxExp ? deputy.experienceDepute! : maxExp);
+      }
+      if (deputy.scoreLoyaute != null) {
+        minLoy = minLoy == null ? deputy.scoreLoyaute! : (deputy.scoreLoyaute! < minLoy ? deputy.scoreLoyaute! : minLoy);
+        maxLoy = maxLoy == null ? deputy.scoreLoyaute! : (deputy.scoreLoyaute! > maxLoy ? deputy.scoreLoyaute! : maxLoy);
+      }
+      if (deputy.scoreMajorite != null) {
+        minMaj = minMaj == null ? deputy.scoreMajorite! : (deputy.scoreMajorite! < minMaj ? deputy.scoreMajorite! : minMaj);
+        maxMaj = maxMaj == null ? deputy.scoreMajorite! : (deputy.scoreMajorite! > maxMaj ? deputy.scoreMajorite! : maxMaj);
+      }
+      if (deputy.scoreParticipation != null) {
+        minPart = minPart == null ? deputy.scoreParticipation! : (deputy.scoreParticipation! < minPart ? deputy.scoreParticipation! : minPart);
+        maxPart = maxPart == null ? deputy.scoreParticipation! : (deputy.scoreParticipation! > maxPart ? deputy.scoreParticipation! : maxPart);
+      }
+      if (deputy.scoreParticipationSpectialite != null) {
+        minPartSpec = minPartSpec == null ? deputy.scoreParticipationSpectialite! : (deputy.scoreParticipationSpectialite! < minPartSpec ? deputy.scoreParticipationSpectialite! : minPartSpec);
+        maxPartSpec = maxPartSpec == null ? deputy.scoreParticipationSpectialite! : (deputy.scoreParticipationSpectialite! > maxPartSpec ? deputy.scoreParticipationSpectialite! : maxPartSpec);
+      }
+    }
+    
+    print('📊 Statistiques de collecte:');
+    print('  $legislatureCount députés avec législature');
+    print('  $depCount députés avec département');
+    print('  $groupCount députés avec groupe');
+    print('  $jobCount députés avec profession');
+    
+    // Populate filter options sorted
+    _legislatures = legislatureSet.toList()..sort();
+    _departments = departmentSet.toList()..sort((a, b) {
+      // Sort departments numerically
+      final aNum = int.tryParse(a) ?? 0;
+      final bNum = int.tryParse(b) ?? 0;
+      return aNum.compareTo(bNum);
+    });
+    _groups = groupSet.toList()..sort();
+    _jobs = jobSet.toList()..sort();
+    
+    // Set ranges with safe defaults
+    _minAge = minAge ?? 0;
+    _maxAge = maxAge ?? 100;
+    _minExperience = minExp ?? 0;
+    _maxExperience = maxExp ?? 50;
+    _minLoyaute = minLoy ?? 0.0;
+    _maxLoyaute = maxLoy ?? 1.0;
+    _minMajorite = minMaj ?? 0.0;
+    _maxMajorite = maxMaj ?? 1.0;
+    _minParticipation = minPart ?? 0.0;
+    _maxParticipation = maxPart ?? 1.0;
+    _minParticipationSpecialite = minPartSpec ?? 0.0;
+    _maxParticipationSpecialite = maxPartSpec ?? 1.0;
+    
+    // Debug: print filter lists
+    print('🔍 Filtres disponibles:');
+    print('  Législatures: $_legislatures (${_legislatures.length} items)');
+    print('  Départements: ${_departments.length} items');
+    print('  Groupes: ${_groups.length} items');
+    print('  Jobs: ${_jobs.length} items');
+  }
+  
   /// Charge depuis SharedPreferences pour persistance entre sessions
   Future<void> _loadFromSharedPreferences() async {
     try {
@@ -165,9 +378,12 @@ class _DeputiesListPageState extends State<DeputiesListPage> {
       final cacheTimestamp = prefs.getInt('deputies_cache_timestamp') ?? 0;
       final now = DateTime.now().millisecondsSinceEpoch;
       
-      // Cache valide pour 1 heure
-      if (now - cacheTimestamp > 3600000) {
+      // Cache valide pour 5 minutes
+      if (now - cacheTimestamp > 300000) {
         print('💾 Cache SharedPreferences expiré');
+        // Clear old cache
+        await prefs.remove('deputies_cache');
+        await prefs.remove('deputies_cache_timestamp');
         return;
       }
       
@@ -179,12 +395,17 @@ class _DeputiesListPageState extends State<DeputiesListPage> {
         
         print('💾 ${deputies.length} députés chargés depuis SharedPreferences');
         
+        // Populate filter options
+        _populateFilterOptions(deputies);
+        
         setState(() {
           _allDeputies = deputies;
-          _searchResults = deputies;
           _isLoadingAllDeputies = false;
           _isInitialized = true;
         });
+        
+        // Apply initial filters (active only by default)
+        _applyFilters();
         
         // Mettre en cache mémoire
         _deputiesCache['deputies_list'] = deputies;
@@ -286,8 +507,11 @@ class _DeputiesListPageState extends State<DeputiesListPage> {
     try {
       final Map<String, List<DeputyModel>> deputiesByGroup = {};
       
-      // Grouper les députés par groupe politique
+      // Grouper les députés par groupe politique (uniquement les actifs)
       for (final deputy in _allDeputies) {
+        // Filtrer uniquement les députés actifs
+        if (deputy.active != 1) continue;
+        
         final groupName = deputy.famillePolLibelleDb ?? 
                          deputy.famillePolLibelle ?? 
                          'Groupe non défini';
@@ -359,9 +583,12 @@ class _DeputiesListPageState extends State<DeputiesListPage> {
 
       // Traitement optimisé - limitation si trop de features pour les performances
       final features = geoJson['features'] as List;
-      final maxFeatures = math.min(features.length, 1000); // Limiter à 1000 pour la fluidité
+      print('📊 Total features GeoJSON: ${features.length}');
       
-      for (int featureIndex = 0; featureIndex < maxFeatures; featureIndex++) {
+      int matchedCount = 0;
+      int unmatchedCount = 0;
+      
+      for (int featureIndex = 0; featureIndex < features.length; featureIndex++) {
         var feature = features[featureIndex];
 
         Map<String, dynamic> circonscriptionInfo = {
@@ -373,19 +600,54 @@ class _DeputiesListPageState extends State<DeputiesListPage> {
               'Circonscription ${featureIndex + 1}',
         };
 
-        const String? couleur = null;
-        final Color fillColor = parseColor(couleur, opacity: 0.3);
-        final Color borderColor = parseColor(couleur, opacity: 0.8);
+        // Trouver le député actif de cette circonscription pour obtenir sa couleur de groupe
+        String? couleur;
+        final idCirco = feature['properties']?['id_circo'] as String?;
+        
+        if (idCirco != null && idCirco.isNotEmpty) {
+          // Chercher le député actif dont l'idcirco correspond exactement
+          bool found = false;
+          for (final deputy in _allDeputies) {
+            if (deputy.active == 1 && deputy.idcirco == idCirco) {
+              final groupe = deputy.famillePolLibelleDb ?? deputy.famillePolLibelle;
+              if (groupe != null && _groupColors.containsKey(groupe)) {
+                couleur = _groupColors[groupe];
+                found = true;
+                matchedCount++;
+                if (matchedCount <= 5) { // Log pour les 5 premiers matchs réussis
+                  print('🗺️ ✅ Circo $idCirco: ${deputy.nom} → groupe=$groupe → couleur=$couleur');
+                }
+              }
+              break;
+            }
+          }
+          
+          if (!found) {
+            unmatchedCount++;
+            if (unmatchedCount <= 15) { // Log des 15 premiers échecs pour debug avec détails
+              // Chercher si un député existe pour ce dep (pour debug)
+              final dep = idCirco.length >= 2 ? idCirco.substring(0, 2) : '';
+              final foundForDep = _allDeputies.where((d) => d.dep == dep && d.active == 1).take(3).toList();
+              if (foundForDep.isNotEmpty) {
+                print('🗺️ ⚠️ Circo GeoJSON "$idCirco": AUCUN MATCH - Députés actifs dep $dep: ${foundForDep.map((d) => '${d.nom} (idcirco="${d.idcirco}")').join(", ")}');
+              } else {
+                print('🗺️ ⚠️ Circo GeoJSON "$idCirco": AUCUN DÉPUTÉ ACTIF TROUVÉ POUR DEP $dep');
+              }
+            }
+          }
+        }
+        
+        // Utiliser la couleur du groupe ou gris par défaut si pas de député
+        final Color fillColor = parseColor(couleur ?? '#CCCCCC', opacity: 0.5);
+        final Color borderColor = parseColor(couleur ?? '#999999', opacity: 1.0);
 
         if (feature['geometry']['type'] == 'Polygon') {
           List<LatLng> points = [];
           var coordinates = feature['geometry']['coordinates'][0];
 
           if (coordinates != null && coordinates.isNotEmpty) {
-            // Optimisation: réduire le nombre de points pour les performances
-            final step = math.max(1, coordinates.length ~/ 50); // Max 50 points par polygone
-            
-            for (int i = 0; i < coordinates.length; i += step) {
+            // Garder TOUS les points pour des frontières précises
+            for (int i = 0; i < coordinates.length; i++) {
               var coord = coordinates[i];
               if (coord != null && coord.length >= 2) {
                 points.add(LatLng(coord[1], coord[0]));
@@ -398,23 +660,22 @@ class _DeputiesListPageState extends State<DeputiesListPage> {
                   points: points,
                   color: fillColor,
                   borderColor: borderColor,
-                  borderStrokeWidth: 1.0, // Réduit pour les performances
+                  borderStrokeWidth: 0.5,
+                  isFilled: true,
                 ),
               );
               circonscriptionData.add(circonscriptionInfo);
             }
           }
         } else if (feature['geometry']['type'] == 'MultiPolygon') {
-          // Simplifier le MultiPolygon - prendre seulement le premier polygone
-          if (feature['geometry']['coordinates'].isNotEmpty) {
-            var polygon = feature['geometry']['coordinates'][0];
+          // Traiter TOUS les polygones du MultiPolygon
+          for (var polygon in feature['geometry']['coordinates']) {
             List<LatLng> points = [];
             var coordinates = polygon[0];
 
             if (coordinates != null && coordinates.isNotEmpty) {
-              final step = math.max(1, coordinates.length ~/ 50);
-              
-              for (int i = 0; i < coordinates.length; i += step) {
+              // Garder tous les points
+              for (int i = 0; i < coordinates.length; i++) {
                 var coord = coordinates[i];
                 if (coord != null && coord.length >= 2) {
                   points.add(LatLng(coord[1], coord[0]));
@@ -427,7 +688,8 @@ class _DeputiesListPageState extends State<DeputiesListPage> {
                     points: points,
                     color: fillColor,
                     borderColor: borderColor,
-                    borderStrokeWidth: 1.0,
+                    borderStrokeWidth: 0.5,
+                    isFilled: true,
                   ),
                 );
                 circonscriptionData.add(circonscriptionInfo);
@@ -476,12 +738,17 @@ class _DeputiesListPageState extends State<DeputiesListPage> {
       allDeputies.sort((a, b) => a.fullName.compareTo(b.fullName));
 
       if (mounted) {
+        // Populate filter options from loaded deputies
+        _populateFilterOptions(allDeputies);
+        
         setState(() {
           _allDeputies = allDeputies;
-          _searchResults = allDeputies;
           _isLoadingAllDeputies = false;
           _isInitialized = true;
         });
+        
+        // Apply initial filters (active only by default)
+        _applyFilters();
         
         // Mettre en cache
         _deputiesCache['deputies_list'] = allDeputies;
@@ -574,10 +841,9 @@ class _DeputiesListPageState extends State<DeputiesListPage> {
             // Sélecteur de mode modernisé avec thème vert
             Container(
               margin: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-              padding: const EdgeInsets.all(4),
               decoration: BoxDecoration(
                 color: Colors.white,
-                borderRadius: BorderRadius.circular(20),
+                borderRadius: BorderRadius.circular(35),
                 boxShadow: [
                   BoxShadow(
                     color: Colors.black.withOpacity(0.05),
@@ -586,33 +852,36 @@ class _DeputiesListPageState extends State<DeputiesListPage> {
                   ),
                 ],
               ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: _buildModeButton(
-                      mode: ViewMode.search,
-                      label: 'Recherche',
-                      icon: Icons.search,
-                      isSelected: _currentMode == ViewMode.search,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(35),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: _buildModeButton(
+                        mode: ViewMode.search,
+                        label: 'Recherche',
+                        icon: Icons.search,
+                        isSelected: _currentMode == ViewMode.search,
+                      ),
                     ),
-                  ),
-                  Expanded(
-                    child: _buildModeButton(
-                      mode: ViewMode.map,
-                      label: 'Carte',
-                      icon: Icons.map_outlined,
-                      isSelected: _currentMode == ViewMode.map,
+                    Expanded(
+                      child: _buildModeButton(
+                        mode: ViewMode.map,
+                        label: 'Carte',
+                        icon: Icons.map_outlined,
+                        isSelected: _currentMode == ViewMode.map,
+                      ),
                     ),
-                  ),
-                  Expanded(
-                    child: _buildModeButton(
-                      mode: ViewMode.groups,
-                      label: 'Groupes',
-                      icon: Icons.groups_outlined,
-                      isSelected: _currentMode == ViewMode.groups,
+                    Expanded(
+                      child: _buildModeButton(
+                        mode: ViewMode.groups,
+                        label: 'Groupes',
+                        icon: Icons.groups_outlined,
+                        isSelected: _currentMode == ViewMode.groups,
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
 
@@ -636,29 +905,37 @@ class _DeputiesListPageState extends State<DeputiesListPage> {
     required bool isSelected,
   }) {
     return GestureDetector(
-      onTap: () {
+      onTap: () async {
         setState(() {
           _currentMode = mode;
         });
         if (mode == ViewMode.groups) {
           _loadGroupsOptimized();
+        } else if (mode == ViewMode.map) {
+          // S'assurer que tout est chargé avant d'afficher la carte
+          if (_groupColors.isEmpty) {
+            await _loadGroupColors();
+          }
+          if (_isLoadingGeoJson || _circonscriptions.isEmpty) {
+            await _loadGeoJsonDataOptimized();
+          }
         }
       },
       child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 12),
+        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
         decoration: BoxDecoration(
           color: isSelected ? const Color(0xFF556B2F) : Colors.transparent,
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(0),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(
               icon,
-              size: 20,
+              size: 22,
               color: isSelected ? Colors.white : const Color(0xFF556B2F),
             ),
-            const SizedBox(height: 4),
+            const SizedBox(height: 6),
             Text(
               label,
               style: TextStyle(
@@ -695,70 +972,503 @@ class _DeputiesListPageState extends State<DeputiesListPage> {
   Widget _buildSearchView() {
     return Column(
       children: [
-        // Barre de recherche épurée et moderne
-        Container(
-          margin: const EdgeInsets.only(bottom: 20),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(20),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.04),
-                blurRadius: 15,
-                offset: const Offset(0, 4),
+        // Barre de recherche avec bouton filtres (se cache lors du scroll)
+        if (_showHeader)
+          Container(
+            margin: const EdgeInsets.only(bottom: 12),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(35),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.04),
+                  blurRadius: 15,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _searchController,
+                  focusNode: _searchFocusNode,
+                  decoration: InputDecoration(
+                    hintText: 'Nom, prénom...',
+                    hintStyle: TextStyle(
+                      color: const Color(0xFF556B2F).withOpacity(0.6),
+                      fontSize: 16,
+                      fontWeight: FontWeight.w400,
+                    ),
+                    prefixIcon: Icon(
+                      Icons.search,
+                      color: const Color(0xFF556B2F).withOpacity(0.7),
+                      size: 22,
+                    ),
+                    suffixIcon: _searchController.text.isNotEmpty
+                        ? GestureDetector(
+                            onTap: () {
+                              _searchController.clear();
+                              _applyFilters();
+                            },
+                            child: Container(
+                              margin: const EdgeInsets.all(12),
+                              padding: const EdgeInsets.all(4),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF556B2F).withOpacity(0.1),
+                                shape: BoxShape.circle,
+                              ),
+                              child: Icon(
+                                Icons.close,
+                                size: 16,
+                                color: const Color(0xFF556B2F).withOpacity(0.8),
+                              ),
+                            ),
+                          )
+                        : null,
+                    border: InputBorder.none,
+                    contentPadding:
+                        const EdgeInsets.symmetric(vertical: 18, horizontal: 20),
+                  ),
+                  style: const TextStyle(
+                    fontSize: 16,
+                    color: Color(0xFF556B2F),
+                    fontWeight: FontWeight.w500,
+                  ),
+                  onChanged: (value) => _applyFilters(),
+                ),
+              ),
+              // Bouton filtres
+              GestureDetector(
+                onTap: () {
+                  setState(() {
+                    _showFilters = !_showFilters;
+                  });
+                },
+                child: Container(
+                  margin: const EdgeInsets.only(right: 12),
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: _hasActiveFilters()
+                        ? const Color(0xFF556B2F)
+                        : const Color(0xFF556B2F).withOpacity(0.1),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    Icons.filter_list,
+                    color: _hasActiveFilters()
+                        ? Colors.white
+                        : const Color(0xFF556B2F).withOpacity(0.8),
+                    size: 20,
+                  ),
+                ),
               ),
             ],
           ),
-          child: TextField(
-            controller: _searchController,
-            focusNode: _searchFocusNode,
-            decoration: InputDecoration(
-              hintText: 'Rechercher un député...',
-              hintStyle: TextStyle(
-                color: const Color(0xFF556B2F).withOpacity(0.6),
-                fontSize: 16,
-                fontWeight: FontWeight.w400,
-              ),
-              prefixIcon: Icon(
-                Icons.search,
-                color: const Color(0xFF556B2F).withOpacity(0.7),
-                size: 22,
-              ),
-              suffixIcon: _searchController.text.isNotEmpty
-                  ? GestureDetector(
-                      onTap: () {
-                        _searchController.clear();
-                        setState(() {
-                          _searchResults = _allDeputies;
-                        });
-                      },
-                      child: Container(
-                        margin: const EdgeInsets.all(12),
-                        padding: const EdgeInsets.all(4),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF556B2F).withOpacity(0.1),
-                          shape: BoxShape.circle,
-                        ),
-                        child: Icon(
-                          Icons.close,
-                          size: 16,
-                          color: const Color(0xFF556B2F).withOpacity(0.8),
+        ),
+        
+        // Active filters chips (se cache lors du scroll)
+        if (_showHeader && _hasActiveFilters())
+          Container(
+            margin: const EdgeInsets.only(bottom: 12),
+            height: 36,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              children: [
+                // Filtered count chip
+                Container(
+                  margin: const EdgeInsets.only(right: 8),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF556B2F).withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: const Color(0xFF556B2F).withOpacity(0.3)),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.filter_alt, size: 14, color: Color(0xFF556B2F)),
+                      const SizedBox(width: 4),
+                      Text(
+                        '${_searchResults.length} député${_searchResults.length > 1 ? 's' : ''}',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF556B2F),
                         ),
                       ),
-                    )
-                  : null,
-              border: InputBorder.none,
-              contentPadding:
-                  const EdgeInsets.symmetric(vertical: 18, horizontal: 20),
+                    ],
+                  ),
+                ),
+                if (_showOnlyActive) _buildFilterChip('Actifs', () {
+                  setState(() {
+                    _showOnlyActive = false;
+                    _applyFilters();
+                  });
+                }),
+                if (_selectedLegislature != null) _buildFilterChip('Lég. $_selectedLegislature', () {
+                  setState(() {
+                    _selectedLegislature = null;
+                    _applyFilters();
+                  });
+                }),
+                if (_selectedDepartment != null) _buildFilterChip('Dép. $_selectedDepartment', () {
+                  setState(() {
+                    _selectedDepartment = null;
+                    _applyFilters();
+                  });
+                }),
+                if (_selectedGroup != null) _buildFilterChip(_selectedGroup!, () {
+                  setState(() {
+                    _selectedGroup = null;
+                    _applyFilters();
+                  });
+                }, maxWidth: 150),
+                if (_selectedJob != null) _buildFilterChip(_selectedJob!, () {
+                  setState(() {
+                    _selectedJob = null;
+                    _applyFilters();
+                  });
+                }, maxWidth: 120),
+                if (_ageRange != null) _buildFilterChip('Âge: ${_ageRange!.start.round()}-${_ageRange!.end.round()}', () {
+                  setState(() {
+                    _ageRange = null;
+                    _applyFilters();
+                  });
+                }),
+                if (_experienceRange != null) _buildFilterChip('Exp: ${_experienceRange!.start.round()}-${_experienceRange!.end.round()}', () {
+                  setState(() {
+                    _experienceRange = null;
+                    _applyFilters();
+                  });
+                }),
+                if (_loyauteRange != null) _buildFilterChip('Loyauté: ${_loyauteRange!.start.toStringAsFixed(2)}-${_loyauteRange!.end.toStringAsFixed(2)}', () {
+                  setState(() {
+                    _loyauteRange = null;
+                    _applyFilters();
+                  });
+                }),
+                if (_majoriteRange != null) _buildFilterChip('Majorité: ${_majoriteRange!.start.toStringAsFixed(2)}-${_majoriteRange!.end.toStringAsFixed(2)}', () {
+                  setState(() {
+                    _majoriteRange = null;
+                    _applyFilters();
+                  });
+                }),
+                if (_participationRange != null) _buildFilterChip('Particip.: ${_participationRange!.start.toStringAsFixed(2)}-${_participationRange!.end.toStringAsFixed(2)}', () {
+                  setState(() {
+                    _participationRange = null;
+                    _applyFilters();
+                  });
+                }),
+                if (_participationSpecialiteRange != null) _buildFilterChip('Part. Spé.: ${_participationSpecialiteRange!.start.toStringAsFixed(2)}-${_participationSpecialiteRange!.end.toStringAsFixed(2)}', () {
+                  setState(() {
+                    _participationSpecialiteRange = null;
+                    _applyFilters();
+                  });
+                }),
+                const SizedBox(width: 8),
+                GestureDetector(
+                  onTap: () {
+                    setState(() {
+                      _showOnlyActive = false;
+                      _selectedLegislature = null;
+                      _selectedDepartment = null;
+                      _selectedGroup = null;
+                      _selectedJob = null;
+                      _ageRange = null;
+                      _experienceRange = null;
+                      _loyauteRange = null;
+                      _majoriteRange = null;
+                      _participationRange = null;
+                      _participationSpecialiteRange = null;
+                      _applyFilters();
+                    });
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.red.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(color: Colors.red.withOpacity(0.3)),
+                    ),
+                    child: const Row(
+                      children: [
+                        Icon(Icons.clear_all, size: 14, color: Colors.red),
+                        SizedBox(width: 4),
+                        Text(
+                          'Tout effacer',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.red,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
             ),
-            style: const TextStyle(
-              fontSize: 16,
-              color: Color(0xFF556B2F),
-              fontWeight: FontWeight.w500,
-            ),
-            onChanged: _performSearch,
           ),
-        ),
+        
+        // Show count even without active filters if search is active (se cache lors du scroll)
+        if (_showHeader && !_hasActiveFilters() && _searchController.text.isNotEmpty)
+          Container(
+            margin: const EdgeInsets.only(bottom: 12),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            decoration: BoxDecoration(
+              color: const Color(0xFF556B2F).withOpacity(0.1),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.search, size: 16, color: Color(0xFF556B2F)),
+                const SizedBox(width: 8),
+                Text(
+                  '${_searchResults.length} résultat${_searchResults.length > 1 ? 's' : ''}',
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF556B2F),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        
+        // Filter panel (se cache lors du scroll)
+        if (_showHeader && _showFilters)
+          Container(
+            margin: const EdgeInsets.only(bottom: 12),
+            constraints: const BoxConstraints(maxHeight: 400),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.04),
+                  blurRadius: 10,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Fixed header
+                Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.filter_list, size: 18, color: Color(0xFF556B2F)),
+                      const SizedBox(width: 8),
+                      const Text(
+                        'Filtres',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF556B2F),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                
+                // Scrollable content
+                Flexible(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                
+                // Active only toggle
+                _buildFilterRow(
+                  'Actifs uniquement',
+                  Switch(
+                    value: _showOnlyActive,
+                    onChanged: (value) {
+                      setState(() {
+                        _showOnlyActive = value;
+                        _applyFilters();
+                      });
+                    },
+                    activeColor: const Color(0xFF556B2F),
+                  ),
+                ),
+                
+                const Divider(height: 20),
+                
+                // Legislature filter
+                _buildDropdownFilter(
+                  'Législature',
+                  _selectedLegislature,
+                  _legislatures,
+                  (value) {
+                    setState(() {
+                      _selectedLegislature = value;
+                      _applyFilters();
+                    });
+                  },
+                ),
+                
+                const SizedBox(height: 12),
+                
+                // Department filter
+                _buildDropdownFilter(
+                  'Département',
+                  _selectedDepartment,
+                  _departments,
+                  (value) {
+                    setState(() {
+                      _selectedDepartment = value;
+                      _applyFilters();
+                    });
+                  },
+                ),
+                
+                const SizedBox(height: 12),
+                
+                // Group filter
+                _buildDropdownFilter(
+                  'Groupe politique',
+                  _selectedGroup,
+                  _groups,
+                  (value) {
+                    setState(() {
+                      _selectedGroup = value;
+                      _applyFilters();
+                    });
+                  },
+                ),
+                
+                const SizedBox(height: 12),
+                
+                // Job filter
+                _buildDropdownFilter(
+                  'Profession',
+                  _selectedJob,
+                  _jobs,
+                  (value) {
+                    setState(() {
+                      _selectedJob = value;
+                      _applyFilters();
+                    });
+                  },
+                ),
+                
+                const Divider(height: 24),
+                
+                // Age range filter
+                _buildRangeFilter(
+                  'Âge',
+                  _ageRange ?? RangeValues(_minAge.toDouble(), _maxAge.toDouble()),
+                  _minAge.toDouble(),
+                  _maxAge.toDouble(),
+                  (values) {
+                    setState(() {
+                      _ageRange = values;
+                      _applyFilters();
+                    });
+                  },
+                  divisions: math.max(1, _maxAge - _minAge),
+                ),
+                
+                const SizedBox(height: 12),
+                
+                // Experience range filter
+                _buildRangeFilter(
+                  'Expérience (années)',
+                  _experienceRange ?? RangeValues(_minExperience.toDouble(), _maxExperience.toDouble()),
+                  _minExperience.toDouble(),
+                  _maxExperience.toDouble(),
+                  (values) {
+                    setState(() {
+                      _experienceRange = values;
+                      _applyFilters();
+                    });
+                  },
+                  divisions: math.max(1, _maxExperience - _minExperience),
+                ),
+                
+                const SizedBox(height: 12),
+                
+                // Loyaute score filter
+                _buildRangeFilter(
+                  'Score de loyauté',
+                  _loyauteRange ?? RangeValues(_minLoyaute, _maxLoyaute),
+                  _minLoyaute,
+                  _maxLoyaute,
+                  (values) {
+                    setState(() {
+                      _loyauteRange = values;
+                      _applyFilters();
+                    });
+                  },
+                  divisions: 100,
+                  isDecimal: true,
+                ),
+                
+                const SizedBox(height: 12),
+                
+                // Majorite score filter
+                _buildRangeFilter(
+                  'Score de majorité',
+                  _majoriteRange ?? RangeValues(_minMajorite, _maxMajorite),
+                  _minMajorite,
+                  _maxMajorite,
+                  (values) {
+                    setState(() {
+                      _majoriteRange = values;
+                      _applyFilters();
+                    });
+                  },
+                  divisions: 100,
+                  isDecimal: true,
+                ),
+                
+                const SizedBox(height: 12),
+                
+                // Participation score filter
+                _buildRangeFilter(
+                  'Score de participation',
+                  _participationRange ?? RangeValues(_minParticipation, _maxParticipation),
+                  _minParticipation,
+                  _maxParticipation,
+                  (values) {
+                    setState(() {
+                      _participationRange = values;
+                      _applyFilters();
+                    });
+                  },
+                  divisions: 100,
+                  isDecimal: true,
+                ),
+                
+                const SizedBox(height: 12),
+                
+                // Participation specialite score filter
+                _buildRangeFilter(
+                  'Score participation spécialité',
+                  _participationSpecialiteRange ?? RangeValues(_minParticipationSpecialite, _maxParticipationSpecialite),
+                  _minParticipationSpecialite,
+                  _maxParticipationSpecialite,
+                  (values) {
+                    setState(() {
+                      _participationSpecialiteRange = values;
+                      _applyFilters();
+                    });
+                  },
+                  divisions: 100,
+                  isDecimal: true,
+                ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
 
         // Résultats de recherche avec design moderne
         Expanded(
@@ -882,6 +1592,7 @@ class _DeputiesListPageState extends State<DeputiesListPage> {
                           ),
                         )
                       : ListView.separated(
+                          controller: _scrollController,
                           itemCount: _searchResults.length,
                           separatorBuilder: (context, index) =>
                               const SizedBox(height: 12),
@@ -899,7 +1610,7 @@ class _DeputiesListPageState extends State<DeputiesListPage> {
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(40),
         boxShadow: const [
           BoxShadow(
             color: Color(0x0F000000), // Optimisation: couleur pré-calculée
@@ -911,7 +1622,7 @@ class _DeputiesListPageState extends State<DeputiesListPage> {
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: BorderRadius.circular(35),
           onTap: () {
             Navigator.push(
               context,
@@ -931,7 +1642,8 @@ class _DeputiesListPageState extends State<DeputiesListPage> {
                 Expanded(
                   child: _buildDeputyInfo(deputy),
                 ),
-                // Flèche moderne
+                const SizedBox(width: 8),
+                // Flèche moderne alignée avec le groupe
                 _buildArrowIcon(),
               ],
             ),
@@ -946,7 +1658,7 @@ class _DeputiesListPageState extends State<DeputiesListPage> {
       width: 60,
       height: 60,
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(18),
+        shape: BoxShape.circle,
         border: Border.all(
           color: const Color(0x33556B2F), // Pré-calculé
           width: 2,
@@ -959,8 +1671,7 @@ class _DeputiesListPageState extends State<DeputiesListPage> {
           ),
         ],
       ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(16),
+      child: ClipOval(
         child: Image.network(
           _getDeputyPhotoUrl(deputy.id),
           fit: BoxFit.cover,
@@ -969,7 +1680,7 @@ class _DeputiesListPageState extends State<DeputiesListPage> {
             return Container(
               decoration: const BoxDecoration(
                 color: Color(0x1A556B2F),
-                borderRadius: BorderRadius.all(Radius.circular(16)),
+                shape: BoxShape.circle,
               ),
               child: const Center(
                 child: SizedBox(
@@ -987,7 +1698,7 @@ class _DeputiesListPageState extends State<DeputiesListPage> {
             return Container(
               decoration: const BoxDecoration(
                 color: Color(0x1A556B2F),
-                borderRadius: BorderRadius.all(Radius.circular(16)),
+                shape: BoxShape.circle,
               ),
               child: const Icon(
                 Icons.person,
@@ -1017,22 +1728,31 @@ class _DeputiesListPageState extends State<DeputiesListPage> {
         const SizedBox(height: 6),
         if (deputy.famillePolLibelleDb != null &&
             deputy.famillePolLibelleDb!.isNotEmpty)
-          Container(
-            margin: const EdgeInsets.only(bottom: 8),
-            padding: const EdgeInsets.symmetric(
-                horizontal: 12, vertical: 6),
-            decoration: const BoxDecoration(
-              color: Color(0x1A556B2F),
-              borderRadius: BorderRadius.all(Radius.circular(20)),
-            ),
-            child: Text(
-              deputy.famillePolLibelleDb!,
-              style: const TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: Color(0xCC556B2F),
+          Row(
+            children: [
+              Flexible(
+                child: Container(
+                  margin: const EdgeInsets.only(bottom: 6),
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 10, vertical: 4),
+                  decoration: const BoxDecoration(
+                    color: Color(0x1A556B2F),
+                    borderRadius: BorderRadius.all(Radius.circular(12)),
+                  ),
+                  child: Text(
+                    deputy.famillePolLibelleDb!,
+                    style: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xCC556B2F),
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
               ),
-            ),
+              const SizedBox(width: 12),
+            ],
           ),
         Text(
           deputy.circonscriptionComplete,
@@ -1053,7 +1773,7 @@ class _DeputiesListPageState extends State<DeputiesListPage> {
       child: DecoratedBox(
         decoration: BoxDecoration(
           color: Color(0x1A556B2F),
-          borderRadius: BorderRadius.all(Radius.circular(10)),
+          shape: BoxShape.circle,
         ),
         child: Icon(
           Icons.arrow_forward_ios_rounded,
@@ -1331,7 +2051,7 @@ class _DeputiesListPageState extends State<DeputiesListPage> {
     return Container(
       decoration: const BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.all(Radius.circular(20)),
+        borderRadius: BorderRadius.all(Radius.circular(35)),
         boxShadow: [
           BoxShadow(
             color: Color(0x0F000000),
@@ -1340,29 +2060,34 @@ class _DeputiesListPageState extends State<DeputiesListPage> {
           ),
         ],
       ),
-      child: ExpansionTile(
-        tilePadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-        childrenPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-        title: _buildGroupHeader(group, deputies.length),
-        children: [
-          // Limiter à 10 députés par défaut pour les performances
-          ...deputies.take(10).map((deputy) => _buildOptimizedGroupDeputyTile(deputy)),
-          if (deputies.length > 10)
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: TextButton.icon(
-                onPressed: () {
-                  // TODO: Implémenter une vue détaillée du groupe
-                  _showFullGroupDialog(group, deputies);
-                },
-                icon: const Icon(Icons.more_horiz, color: Color(0xFF556B2F)),
-                label: Text(
-                  'Voir ${deputies.length - 10} autres députés...',
-                  style: const TextStyle(color: Color(0xFF556B2F)),
+      child: Theme(
+        data: Theme.of(context).copyWith(
+          dividerColor: Colors.transparent,
+        ),
+        child: ExpansionTile(
+          tilePadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+          childrenPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+          title: _buildGroupHeader(group, deputies.length),
+          children: [
+            // Limiter à 10 députés par défaut pour les performances
+            ...deputies.take(10).map((deputy) => _buildOptimizedGroupDeputyTile(deputy)),
+            if (deputies.length > 10)
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: TextButton.icon(
+                  onPressed: () {
+                    // TODO: Implémenter une vue détaillée du groupe
+                    _showFullGroupDialog(group, deputies);
+                  },
+                  icon: const Icon(Icons.more_horiz, color: Color(0xFF556B2F)),
+                  label: Text(
+                    'Voir ${deputies.length - 10} autres députés...',
+                    style: const TextStyle(color: Color(0xFF556B2F)),
+                  ),
                 ),
               ),
-            ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -1370,24 +2095,6 @@ class _DeputiesListPageState extends State<DeputiesListPage> {
   Widget _buildGroupHeader(String group, int count) {
     return Row(
       children: [
-        Container(
-          width: 50,
-          height: 50,
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [Color(0xFF556B2F), Color(0xFF6B8E3E)],
-            ),
-            borderRadius: BorderRadius.all(Radius.circular(15)),
-          ),
-          child: const Icon(
-            Icons.groups_rounded,
-            size: 26,
-            color: Colors.white,
-          ),
-        ),
-        const SizedBox(width: 16),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -1557,41 +2264,319 @@ class _DeputiesListPageState extends State<DeputiesListPage> {
     );
   }
 
-  void _performSearch(String query) {
-    // Annuler le timer précédent pour éviter les recherches multiples
+  void _applyFilters() {
     _searchDebounceTimer?.cancel();
     
-    // Utiliser debouncing pour éviter trop de setState
     _searchDebounceTimer = Timer(_searchDebounceDelay, () {
       if (!mounted) return;
       
-      if (query.trim().isEmpty) {
-        setState(() {
-          _searchResults = _allDeputies;
-        });
-        return;
-      }
-
-      // Recherche optimisée avec liste pré-triée
-      final searchQuery = query.toLowerCase();
-      final filteredDeputies = <DeputyModel>[];
+      List<DeputyModel> filtered = List.from(_allDeputies);
       
-      // Optimisation: arrêter la recherche après un certain nombre de résultats
-      const maxResults = 100;
-      
-      for (final deputy in _allDeputies) {
-        if (filteredDeputies.length >= maxResults) break;
-        
-        final fullName = deputy.fullName.toLowerCase();
-        if (fullName.contains(searchQuery)) {
-          filteredDeputies.add(deputy);
-        }
+      // Filter by active status
+      if (_showOnlyActive) {
+        filtered = filtered.where((d) => d.active == 1).toList();
       }
-
+      
+      // Filter by legislature
+      if (_selectedLegislature != null) {
+        filtered = filtered.where((d) => d.legislature == _selectedLegislature).toList();
+      }
+      
+      // Filter by department
+      if (_selectedDepartment != null) {
+        filtered = filtered.where((d) => d.dep == _selectedDepartment).toList();
+      }
+      
+      // Filter by group
+      if (_selectedGroup != null) {
+        filtered = filtered.where((d) => d.famillePolLibelleDb == _selectedGroup).toList();
+      }
+      
+      // Filter by job
+      if (_selectedJob != null) {
+        filtered = filtered.where((d) => d.profession == _selectedJob).toList();
+      }
+      
+      // Filter by age range
+      if (_ageRange != null && 
+          (_ageRange!.start > _minAge.toDouble() || _ageRange!.end < _maxAge.toDouble())) {
+        filtered = filtered.where((d) {
+          if (d.age == null) return false;
+          return d.age! >= _ageRange!.start.round() && d.age! <= _ageRange!.end.round();
+        }).toList();
+      }
+      
+      // Filter by experience range
+      if (_experienceRange != null &&
+          (_experienceRange!.start > _minExperience.toDouble() || _experienceRange!.end < _maxExperience.toDouble())) {
+        filtered = filtered.where((d) {
+          if (d.experienceDepute == null) return false;
+          return d.experienceDepute! >= _experienceRange!.start.round() && 
+                 d.experienceDepute! <= _experienceRange!.end.round();
+        }).toList();
+      }
+      
+      // Filter by loyaute score range
+      if (_loyauteRange != null &&
+          (_loyauteRange!.start > _minLoyaute || _loyauteRange!.end < _maxLoyaute)) {
+        filtered = filtered.where((d) {
+          if (d.scoreLoyaute == null) return false;
+          return d.scoreLoyaute! >= _loyauteRange!.start && 
+                 d.scoreLoyaute! <= _loyauteRange!.end;
+        }).toList();
+      }
+      
+      // Filter by majorite score range
+      if (_majoriteRange != null &&
+          (_majoriteRange!.start > _minMajorite || _majoriteRange!.end < _maxMajorite)) {
+        filtered = filtered.where((d) {
+          if (d.scoreMajorite == null) return false;
+          return d.scoreMajorite! >= _majoriteRange!.start && 
+                 d.scoreMajorite! <= _majoriteRange!.end;
+        }).toList();
+      }
+      
+      // Filter by participation score range
+      if (_participationRange != null &&
+          (_participationRange!.start > _minParticipation || _participationRange!.end < _maxParticipation)) {
+        filtered = filtered.where((d) {
+          if (d.scoreParticipation == null) return false;
+          return d.scoreParticipation! >= _participationRange!.start && 
+                 d.scoreParticipation! <= _participationRange!.end;
+        }).toList();
+      }
+      
+      // Filter by participation specialite score range
+      if (_participationSpecialiteRange != null &&
+          (_participationSpecialiteRange!.start > _minParticipationSpecialite || _participationSpecialiteRange!.end < _maxParticipationSpecialite)) {
+        filtered = filtered.where((d) {
+          if (d.scoreParticipationSpectialite == null) return false;
+          return d.scoreParticipationSpectialite! >= _participationSpecialiteRange!.start && 
+                 d.scoreParticipationSpectialite! <= _participationSpecialiteRange!.end;
+        }).toList();
+      }
+      
+      // Filter by search text
+      final searchQuery = _searchController.text.trim();
+      if (searchQuery.isNotEmpty) {
+        final query = searchQuery.toLowerCase();
+        filtered = filtered.where((deputy) {
+          final fullName = deputy.fullName.toLowerCase();
+          return fullName.contains(query);
+        }).toList();
+      }
+      
       setState(() {
-        _searchResults = filteredDeputies;
+        _searchResults = filtered;
       });
     });
+  }
+  
+  bool _hasActiveFilters() {
+    return _showOnlyActive || 
+           _selectedLegislature != null || 
+           _selectedDepartment != null || 
+           _selectedGroup != null ||
+           _selectedJob != null ||
+           _ageRange != null ||
+           _experienceRange != null ||
+           _loyauteRange != null ||
+           _majoriteRange != null ||
+           _participationRange != null ||
+           _participationSpecialiteRange != null;
+  }
+  
+  Widget _buildFilterChip(String label, VoidCallback onRemove, {double? maxWidth}) {
+    return Container(
+      margin: const EdgeInsets.only(right: 8),
+      constraints: maxWidth != null ? BoxConstraints(maxWidth: maxWidth) : null,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: const Color(0xFF556B2F),
+          borderRadius: BorderRadius.circular(18),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Flexible(
+              child: Text(
+                label,
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.white,
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            const SizedBox(width: 4),
+            GestureDetector(
+              onTap: onRemove,
+              child: const Icon(Icons.close, size: 14, color: Colors.white),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+  
+  Widget _buildFilterRow(String label, Widget trailing) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+            color: Color(0xFF556B2F),
+          ),
+        ),
+        trailing,
+      ],
+    );
+  }
+  
+  Widget _buildDropdownFilter(
+    String label,
+    String? value,
+    List<String> items,
+    ValueChanged<String?> onChanged,
+  ) {
+    // Add null option to allow deselection
+    final allItems = [
+      DropdownMenuItem<String>(
+        value: null,
+        child: Text(
+          'Tous',
+          style: TextStyle(
+            fontSize: 14,
+            color: const Color(0xFF556B2F).withOpacity(0.6),
+            fontStyle: FontStyle.italic,
+          ),
+        ),
+      ),
+      ...items.map((item) {
+        return DropdownMenuItem<String>(
+          value: item,
+          child: Text(
+            item,
+            style: const TextStyle(
+              fontSize: 14,
+              color: Color(0xFF556B2F),
+            ),
+            overflow: TextOverflow.ellipsis,
+          ),
+        );
+      }).toList(),
+    ];
+    
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              label,
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF556B2F),
+              ),
+            ),
+            Text(
+              '${items.length}',
+              style: TextStyle(
+                fontSize: 11,
+                color: const Color(0xFF556B2F).withOpacity(0.5),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          decoration: BoxDecoration(
+            color: const Color(0x0D556B2F),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: const Color(0x33556B2F)),
+          ),
+          child: DropdownButtonHideUnderline(
+            child: DropdownButton<String>(
+              isExpanded: true,
+              value: value,
+              hint: Text(
+                'Tous',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: const Color(0xFF556B2F).withOpacity(0.6),
+                ),
+              ),
+              items: allItems,
+              onChanged: onChanged,
+              icon: const Icon(Icons.arrow_drop_down, color: Color(0xFF556B2F)),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+  
+  Widget _buildRangeFilter(
+    String label,
+    RangeValues values,
+    double min,
+    double max,
+    ValueChanged<RangeValues> onChanged,
+    {
+      int? divisions,
+      bool isDecimal = false,
+    }
+  ) {
+    // Ensure min and max are different to avoid RangeSlider assertion error
+    if (min >= max) {
+      return const SizedBox.shrink(); // Don't show slider if range is invalid
+    }
+    
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              label,
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF556B2F),
+              ),
+            ),
+            Text(
+              isDecimal 
+                ? '${values.start.toStringAsFixed(2)} - ${values.end.toStringAsFixed(2)}'
+                : '${values.start.round()} - ${values.end.round()}',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+                color: const Color(0xFF556B2F).withOpacity(0.7),
+              ),
+            ),
+          ],
+        ),
+        RangeSlider(
+          values: values,
+          min: min,
+          max: max,
+          divisions: divisions,
+          activeColor: const Color(0xFF556B2F),
+          inactiveColor: const Color(0x33556B2F),
+          onChanged: onChanged,
+        ),
+      ],
+    );
   }
 
   void _onMapTap(LatLng point) async {
@@ -1629,38 +2614,44 @@ class _DeputiesListPageState extends State<DeputiesListPage> {
       
       // Debug: afficher quelques échantillons de données
       print('🔍 Recherche pour circonscription: $foundCirconscription');
+      
+      // Extraire le département et le numéro de circonscription de l'id_circo
+      // Format: "2301" = département 23, circonscription 01
+      String? depFromCirco;
+      String? codeCircoFromCirco;
+      
+      if (foundCirconscription.length >= 3) {
+        depFromCirco = foundCirconscription.substring(0, 2);
+        codeCircoFromCirco = foundCirconscription.substring(2);
+        // Enlever les zéros de tête du code circonscription
+        codeCircoFromCirco = codeCircoFromCirco.replaceFirst(RegExp(r'^0+'), '');
+        if (codeCircoFromCirco.isEmpty) codeCircoFromCirco = '1';
+        
+        print('📍 Extrait: département=$depFromCirco, circonscription=$codeCircoFromCirco');
+      }
+      
       if (_allDeputies.isNotEmpty) {
         print('📊 Échantillon de données deputés:');
         for (int i = 0; i < math.min(5, _allDeputies.length); i++) {
           final deputy = _allDeputies[i];
-          print('   Deputy ${i+1}: idcirco="${deputy.idcirco}", codeCirco="${deputy.codeCirco}", nom="${deputy.nom}", prenom="${deputy.prenom}"');
-        }
-        
-        // Debug: Essayer de trouver des députés qui ont des circonscriptions non nulles
-        final deputiesWithCirco = _allDeputies.where((d) => 
-          d.idcirco != null || d.codeCirco != null).take(3).toList();
-        
-        if (deputiesWithCirco.isNotEmpty) {
-          print('🎯 Députés avec circonscriptions:');
-          for (final deputy in deputiesWithCirco) {
-            print('   ${deputy.nom}: idcirco="${deputy.idcirco}", codeCirco="${deputy.codeCirco}"');
-          }
-        } else {
-          print('⚠️ Aucun député trouvé avec des données de circonscription');
+          print('   Deputy ${i+1}: dep="${deputy.dep}", codeCirco="${deputy.codeCirco}", nom="${deputy.nom}", prenom="${deputy.prenom}"');
         }
       }
       
-      // Chercher le député correspondant à cette circonscription
+      // Chercher le député correspondant à cette circonscription (UNIQUEMENT ACTIFS)
       DeputyModel? foundDeputy;
       
       for (final deputy in _allDeputies) {
-        // Vérifier plusieurs formats d'identifiants de circonscription
-        if (deputy.idcirco == foundCirconscription ||
-            deputy.codeCirco == foundCirconscription ||
-            deputy.idcirco == _normalizeIdcirco(foundCirconscription) ||
-            deputy.codeCirco == _normalizeIdcirco(foundCirconscription)) {
-          foundDeputy = deputy;
-          break;
+        // Filtrer uniquement les députés actifs
+        if (deputy.active != 1) continue;
+        
+        // Matcher par département ET code circonscription
+        if (depFromCirco != null && codeCircoFromCirco != null) {
+          if (deputy.dep == depFromCirco && deputy.codeCirco == codeCircoFromCirco) {
+            foundDeputy = deputy;
+            print('✅ Député trouvé: ${deputy.nom} ${deputy.prenom} (dep=${deputy.dep}, circo=${deputy.codeCirco}, active=${deputy.active})');
+            break;
+          }
         }
       }
       
@@ -1927,6 +2918,8 @@ class _DeputiesListPageState extends State<DeputiesListPage> {
     _searchController.dispose();
     _searchFocusNode.removeListener(_onSearchFocusChange);
     _searchFocusNode.dispose();
+    _scrollController.removeListener(_onScroll);
+    _scrollController.dispose();
     _searchDebounceTimer?.cancel();
     super.dispose();
   }

@@ -20,7 +20,7 @@ class DatabaseService {
     String path = join(await getDatabasesPath(), 'agorapush.db');
     return await openDatabase(
       path,
-      version: 3,
+      version: 4,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -35,6 +35,7 @@ class DatabaseService {
         salt TEXT NOT NULL,
         recovery_phrase TEXT NOT NULL,
         circonscription TEXT NOT NULL,
+        idcirco TEXT,
         notifications_enabled INTEGER DEFAULT 0,
         created_at TEXT NOT NULL
       )
@@ -47,6 +48,15 @@ class DatabaseService {
     }
     if (oldVersion < 3) {
       await db.execute('ALTER TABLE users ADD COLUMN idcirco TEXT');
+    }
+    // Version 4: Ensure idcirco exists if missing (fix for databases created with wrong schema)
+    if (oldVersion < 4) {
+      try {
+        await db.execute('ALTER TABLE users ADD COLUMN idcirco TEXT');
+      } catch (e) {
+        // Column already exists, ignore error
+        print('Column idcirco already exists: $e');
+      }
     }
   }
 
