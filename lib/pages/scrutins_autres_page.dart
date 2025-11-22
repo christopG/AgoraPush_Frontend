@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../services/api_service.dart';
 import '../data/models/scrutin_model.dart';
+import 'scrutin_detail_page.dart';
 
 class ScrutinsAutresPage extends StatefulWidget {
   const ScrutinsAutresPage({super.key});
@@ -405,23 +406,32 @@ class _ScrutinsAutresPageState extends State<ScrutinsAutresPage> {
   }
 
   Widget _buildScrutinCard(ScrutinModel scrutin) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 16),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
+    return GestureDetector(
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => ScrutinDetailPage(scrutin: scrutin),
           ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
+        );
+      },
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 16),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
           // Type de scrutin
           if (scrutin.typeScrutin != null)
             Container(
@@ -509,6 +519,7 @@ class _ScrutinsAutresPageState extends State<ScrutinsAutresPage> {
             ),
           ],
         ],
+      ),
       ),
     );
   }

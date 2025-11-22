@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../data/models/scrutin_model.dart';
 import '../data/models/theme_model.dart';
 import '../services/api_service.dart';
+import 'scrutin_detail_page.dart';
 
 class ScrutinsPage extends StatefulWidget {
   const ScrutinsPage({super.key});
@@ -11,22 +12,27 @@ class ScrutinsPage extends StatefulWidget {
 }
 
 class _ScrutinsPageState extends State<ScrutinsPage> {
-  List<ScrutinModel> _allScrutins = [];
-  List<ScrutinModel> _filteredScrutins = [];
+  List<ScrutinModel> _allScrutins = []; // Tous les scrutins chargés jusqu'à présent
   List<ThemeModel> _allThemes = [];
-  List<String> _selectedThemeIds = []; // IDs des thèmes sélectionnés
+  List<String> _selectedThemeIds = [];
   bool _isLoading = true;
+  bool _isLoadingMore = false;
   String _searchQuery = '';
   final TextEditingController _searchController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   bool _showHeader = true;
   
+  // Pagination côté serveur
+  int _currentPage = 0;
+  int _totalCount = 0;
+  bool _hasMore = true;
+  
   // Filtres
   bool _showFilters = false;
-  DateTimeRange? _selectedDateRange; // Plage de dates au lieu d'une date unique
-  String? _selectedPeriodType; // 'year' ou 'month'
+  DateTimeRange? _selectedDateRange;
+  String? _selectedPeriodType;
   List<int> _selectedYears = [];
-  List<String> _selectedMonths = []; // Format: 'YYYY-MM'
+  List<String> _selectedMonths = [];
 
   @override
   void initState() {
@@ -43,30 +49,45 @@ class _ScrutinsPageState extends State<ScrutinsPage> {
   }
   
   void _onScroll() {
+    // Cacher/montrer le header
     if (_scrollController.offset > 50 && _showHeader) {
       setState(() => _showHeader = false);
     } else if (_scrollController.offset <= 50 && !_showHeader) {
       setState(() => _showHeader = true);
+    }
+    
+    // Charger plus de scrutins quand on approche du bas
+    if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 200) {
+      _loadMoreScrutins();
     }
   }
 
   Future<void> _loadScrutins() async {
     setState(() => _isLoading = true);
     try {
-      final scrutinsData = await ApiService.getAllScrutins();
-      final scrutins = scrutinsData.map((data) => ScrutinModel.fromJson(data)).toList();
-      
+      // Charger les thèmes une seule fois
       final themesData = await ApiService.getAllThemes();
       final themes = themesData.map((data) => ThemeModel.fromJson(data)).toList();
       
-      if (mounted) {
+      // Charger la première page de scrutins
+      final result = await ApiService.getScrutinsPaginated(
+        page: 0,
+        limit: 15,
+      );
+      
+      if (result != null && mounted) {
+        final scrutins = (result['data'] as List)
+            .map((data) => ScrutinModel.fromJson(data))
+            .toList();
+        
         setState(() {
-          _allScrutins = scrutins;
           _allThemes = themes;
+          _allScrutins = scrutins;
+          _currentPage = 0;
+          _totalCount = result['pagination']['total'];
+          _hasMore = result['pagination']['hasMore'];
           _isLoading = false;
         });
-        _populateFilterOptions();
-        _applyFilters(); // Appliquer le filtre immédiatement après le chargement
       }
     } catch (e) {
       print('Erreur lors du chargement des scrutins: $e');
@@ -76,82 +97,85 @@ class _ScrutinsPageState extends State<ScrutinsPage> {
     }
   }
 
-  void _populateFilterOptions() {
-    // Méthode gardée pour compatibilité mais ne fait plus rien
-    // Les filtres par type et contenu texte ont été supprimés
+  void _applyFilters() async {
+    // Recharger depuis le début avec les nouveaux filtres
+    setState(() {
+      _isLoading = true;
+      _currentPage = 0;
+      _allScrutins = [];
+    });
+    
+    try {
+      final result = await ApiService.getScrutinsPaginated(
+        page: 0,
+        limit: 15,
+        themeIds: _selectedThemeIds.isNotEmpty ? _selectedThemeIds : null,
+        years: _selectedYears.isNotEmpty ? _selectedYears : null,
+        months: _selectedMonths.isNotEmpty ? _selectedMonths : null,
+        search: _searchQuery.isNotEmpty ? _searchQuery : null,
+      );
+      
+      if (result != null && mounted) {
+        final scrutins = (result['data'] as List)
+            .map((data) => ScrutinModel.fromJson(data))
+            .toList();
+        
+        setState(() {
+          _allScrutins = scrutins;
+          _currentPage = 0;
+          _totalCount = result['pagination']['total'];
+          _hasMore = result['pagination']['hasMore'];
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      print('Erreur lors de l\'application des filtres: $e');
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
   }
   
-  void _applyFilters() {
-    setState(() {
-      _filteredScrutins = _allScrutins.where((scrutin) {
-        // Filtre permanent : uniquement certains types de scrutins
-        const allowedTypes = [
-          'Motion de censure',
-          'Motion de rejet',
-          'Projet de loi',
-          'Proposition de loi',
-        ];
-        if (scrutin.typeScrutin == null || !allowedTypes.contains(scrutin.typeScrutin)) {
-          return false;
-        }
+  void _loadMoreScrutins() async {
+    if (_isLoadingMore || !_hasMore) return;
+    
+    setState(() => _isLoadingMore = true);
+    
+    try {
+      final result = await ApiService.getScrutinsPaginated(
+        page: _currentPage + 1,
+        limit: 15,
+        themeIds: _selectedThemeIds.isNotEmpty ? _selectedThemeIds : null,
+        years: _selectedYears.isNotEmpty ? _selectedYears : null,
+        months: _selectedMonths.isNotEmpty ? _selectedMonths : null,
+        search: _searchQuery.isNotEmpty ? _searchQuery : null,
+      );
+      
+      if (result != null && mounted) {
+        final newScrutins = (result['data'] as List)
+            .map((data) => ScrutinModel.fromJson(data))
+            .toList();
         
-        // Filtre par thème
-        if (_selectedThemeIds.isNotEmpty) {
-          final scrutinThemeIds = scrutin.themesList.map((t) => t.id).toList();
-          final hasMatchingTheme = scrutinThemeIds.any((id) => _selectedThemeIds.contains(id));
-          if (!hasMatchingTheme) {
-            return false;
-          }
-        }
-        
-        // Filtre recherche textuelle
-        if (_searchQuery.isNotEmpty) {
-          final query = _searchQuery.toLowerCase();
-          final titre = scrutin.titre?.toLowerCase() ?? '';
-          final sousTitre = scrutin.sousTitre?.toLowerCase() ?? '';
-          final objet = scrutin.objet?.toLowerCase() ?? '';
-          final contenuTexte = scrutin.contenuTexte?.toLowerCase() ?? '';
-          final contexte = scrutin.contexte?.toLowerCase() ?? '';
-          final enjeux = scrutin.enjeux?.toLowerCase() ?? '';
-          final resume = scrutin.resume?.toLowerCase() ?? '';
-          final numero = scrutin.numero?.toLowerCase() ?? '';
-          
-          if (!titre.contains(query) && 
-              !sousTitre.contains(query) &&
-              !objet.contains(query) && 
-              !contenuTexte.contains(query) &&
-              !contexte.contains(query) &&
-              !enjeux.contains(query) &&
-              !resume.contains(query) &&
-              !numero.contains(query)) {
-            return false;
-          }
-        }
-        
-        // Filtre par années sélectionnées
-        if (_selectedYears.isNotEmpty && scrutin.dateScrutin != null) {
-          if (!_selectedYears.contains(scrutin.dateScrutin!.year)) {
-            return false;
-          }
-        }
-        
-        // Filtre par mois sélectionnés
-        if (_selectedMonths.isNotEmpty && scrutin.dateScrutin != null) {
-          final monthKey = '${scrutin.dateScrutin!.year}-${scrutin.dateScrutin!.month.toString().padLeft(2, '0')}';
-          if (!_selectedMonths.contains(monthKey)) {
-            return false;
-          }
-        }
-        
-        return true;
-      }).toList();
-    });
+        setState(() {
+          _allScrutins.addAll(newScrutins);
+          _currentPage++;
+          _hasMore = result['pagination']['hasMore'];
+          _isLoadingMore = false;
+        });
+      }
+    } catch (e) {
+      print('Erreur lors du chargement de plus de scrutins: $e');
+      if (mounted) {
+        setState(() => _isLoadingMore = false);
+      }
+    }
   }
 
   Map<String, List<ScrutinModel>> _groupByDate() {
     final Map<String, List<ScrutinModel>> grouped = {};
     
-    for (var scrutin in _filteredScrutins) {
+    // Grouper les scrutins chargés
+    for (var scrutin in _allScrutins) {
       if (scrutin.dateScrutin != null) {
         final dateKey = scrutin.formattedDate;
         if (!grouped.containsKey(dateKey)) {
@@ -190,7 +214,7 @@ class _ScrutinsPageState extends State<ScrutinsPage> {
             Expanded(
               child: _isLoading
                   ? const Center(child: CircularProgressIndicator())
-                  : _filteredScrutins.isEmpty
+                  : _allScrutins.isEmpty
                       ? _buildEmptyState()
                       : _buildTimelineList(sortedDates, groupedScrutins),
             ),
@@ -246,22 +270,22 @@ class _ScrutinsPageState extends State<ScrutinsPage> {
                   ),
                 ),
               ),
-              // Badge avec le nombre de scrutins
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF556B2F).withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Text(
-                  '${_filteredScrutins.length}',
-                  style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF556B2F),
-                  ),
-                ),
-              ),
+              // Badge avec le nombre de scrutins (chargés/total)
+              // Container(
+              //   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              //   decoration: BoxDecoration(
+              //     color: const Color(0xFF556B2F).withOpacity(0.1),
+              //     borderRadius: BorderRadius.circular(20),
+              //   ),
+              //   child: Text(
+              //     '${_allScrutins.length}/$_totalCount',
+              //     style: const TextStyle(
+              //       fontSize: 14,
+              //       fontWeight: FontWeight.bold,
+              //       color: Color(0xFF556B2F),
+              //     ),
+              //   ),
+              // ),
             ],
           ),
         ],
@@ -433,9 +457,9 @@ class _ScrutinsPageState extends State<ScrutinsPage> {
   }
 
   Widget _buildTimelineList(List<String> dates, Map<String, List<ScrutinModel>> groupedScrutins) {
-    // Grouper les scrutins FILTRÉS par date
+    // Grouper les scrutins CHARGÉS par date
     final Map<String, List<ScrutinModel>> filteredGroupedByDate = {};
-    for (var scrutin in _filteredScrutins) {
+    for (var scrutin in _allScrutins) {
       if (scrutin.dateScrutin != null) {
         final dateKey = scrutin.formattedDate;
         if (!filteredGroupedByDate.containsKey(dateKey)) {
@@ -456,8 +480,20 @@ class _ScrutinsPageState extends State<ScrutinsPage> {
     return ListView.builder(
       controller: _scrollController,
       padding: const EdgeInsets.only(left: 16, right: 16, bottom: 20),
-      itemCount: filteredDates.length,
+      itemCount: filteredDates.length + (_isLoadingMore ? 1 : 0),
       itemBuilder: (context, index) {
+        // Indicateur de chargement à la fin
+        if (index == filteredDates.length) {
+          return const Padding(
+            padding: EdgeInsets.all(16.0),
+            child: Center(
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF556B2F)),
+              ),
+            ),
+          );
+        }
         final date = filteredDates[index];
         final scrutinsForDate = filteredGroupedByDate[date]!;
         final isLast = index == filteredDates.length - 1;
@@ -579,9 +615,11 @@ class _ScrutinsPageState extends State<ScrutinsPage> {
         color: Colors.transparent,
         child: InkWell(
           onTap: () {
-            // Navigation vers détail du scrutin
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Détail du scrutin en développement')),
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => ScrutinDetailPage(scrutin: scrutin),
+              ),
             );
           },
           borderRadius: BorderRadius.circular(20),

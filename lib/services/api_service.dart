@@ -270,6 +270,80 @@ class ApiService {
     }
   }
 
+  /// Récupère les scrutins avec pagination et filtres
+  static Future<Map<String, dynamic>?> getScrutinsPaginated({
+    int page = 0,
+    int limit = 15,
+    List<String>? themeIds,
+    List<int>? years,
+    List<String>? months,
+    String? search,
+  }) async {
+    try {
+      // Construction des query parameters
+      final queryParams = <String, String>{
+        'page': page.toString(),
+        'limit': limit.toString(),
+      };
+      
+      if (themeIds != null && themeIds.isNotEmpty) {
+        queryParams['themes'] = themeIds.join(',');
+      }
+      
+      if (years != null && years.isNotEmpty) {
+        queryParams['years'] = years.map((y) => y.toString()).join(',');
+      }
+      
+      if (months != null && months.isNotEmpty) {
+        queryParams['months'] = months.join(',');
+      }
+      
+      if (search != null && search.isNotEmpty) {
+        queryParams['search'] = search;
+      }
+      
+      final queryString = queryParams.entries
+          .map((e) => '${e.key}=${Uri.encodeComponent(e.value)}')
+          .join('&');
+      
+      final data = await _makeRequest(
+        '/api/scrutins/paginated?$queryString',
+        useCache: false, // Pas de cache pour les données paginées
+      );
+
+      if (data != null && data['success'] == true) {
+        print('📊 ${(data['data'] as List).length} scrutins récupérés (page $page)');
+        return data;
+      }
+      
+      return null;
+    } catch (e) {
+      print('❌ Erreur lors de la récupération des scrutins paginés: $e');
+      return null;
+    }
+  }
+
+  // Nouvel endpoint optimisé pour la page d'accueil
+  static Future<Map<String, dynamic>?> getScrutinsStatsForHome() async {
+    try {
+      final data = await _makeRequest(
+        '/api/scrutins/stats/home',
+        useCache: true,
+        cacheDuration: Duration(minutes: 5), // Cache court pour données récentes
+      );
+
+      if (data != null && data['success'] == true) {
+        print('📊 Stats home chargées: ${data['stats']}');
+        return data;
+      }
+      
+      return null;
+    } catch (e) {
+      print('❌ Erreur lors de la récupération des stats home: $e');
+      return null;
+    }
+  }
+
   static Future<List<dynamic>> getAllThemes() async {
     try {
       final data = await _makeRequest(

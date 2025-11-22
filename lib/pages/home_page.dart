@@ -6,11 +6,13 @@ import 'admin_page.dart';
 import 'deputy_detail_page.dart';
 import 'scrutins_page.dart';
 import 'scrutins_autres_page.dart';
+import 'scrutin_detail_page.dart';
 import '../services/api_service.dart';
 import '../services/admin_auth_service.dart';
 import '../services/session_service.dart';
 import '../providers/deputy_provider.dart';
 import '../data/models/deputy_model.dart';
+import '../data/models/scrutin_model.dart';
 
 // CustomPainter pour créer une vague décorative
 class WavePainter extends CustomPainter {
@@ -91,6 +93,7 @@ class _HomePageState extends State<HomePage> {
   int loiCount = 0; // Projet de Loi + Proposition de Loi
   int autresScrutinsCount = 0; // Tous les autres scrutins
   bool isLoadingScrutins = true;
+  ScrutinModel? scrutinDuJour; // Le dernier scrutin Motion/Loi
   
   // Variables admin
   final AdminAuthService _adminAuthService = AdminAuthService();
@@ -103,6 +106,7 @@ class _HomePageState extends State<HomePage> {
     _loadUserDeputy(); // Charger le député de l'utilisateur
     _loadScrutinsCounts(); // Charger les compteurs de scrutins
     _checkAdminStatus(); // Vérifier le statut admin
+    deputyProvider.loadAllDeputies(); // Charger tous les députés dans le cache global
   }
 
   // Méthode pour charger le nombre de députés depuis le backend
@@ -132,37 +136,26 @@ class _HomePageState extends State<HomePage> {
   // Méthode pour charger les compteurs de scrutins depuis l'API
   Future<void> _loadScrutinsCounts() async {
     try {
-      final scrutins = await ApiService.getAllScrutins();
+      // Utiliser le nouvel endpoint optimisé
+      final response = await ApiService.getScrutinsStatsForHome();
       
-      if (mounted) {
+      if (mounted && response != null) {
         setState(() {
-          // Compter Motion de censure + Motion de rejet
-          motionCount = scrutins.where((s) => 
-            s['type_scrutin'] == 'Motion de censure' || 
-            s['type_scrutin'] == 'Motion de rejet'
-          ).length;
+          motionCount = response['stats']['motionCount'] ?? 0;
+          loiCount = response['stats']['loiCount'] ?? 0;
+          autresScrutinsCount = response['stats']['autresCount'] ?? 0;
           
-          // Compter Projet de Loi + Proposition de Loi
-          loiCount = scrutins.where((s) => 
-            s['type_scrutin'] == 'Projet de loi' || 
-            s['type_scrutin'] == 'Proposition de loi'
-          ).length;
-          
-          // Compter tous les autres scrutins (exclure les 4 types principaux)
-          const excludedTypes = [
-            'Motion de censure',
-            'Motion de rejet',
-            'Projet de loi',
-            'Proposition de loi',
-          ];
-          autresScrutinsCount = scrutins.where((s) {
-            final type = s['type_scrutin'];
-            return type != null && !excludedTypes.contains(type);
-          }).length;
+          // Convertir le scrutin du jour en ScrutinModel si disponible
+          if (response['scrutinDuJour'] != null) {
+            scrutinDuJour = ScrutinModel.fromJson(response['scrutinDuJour']);
+          }
           
           isLoadingScrutins = false;
         });
-        print('📊 Scrutins comptés - Motions: $motionCount, Lois: $loiCount, Autres: $autresScrutinsCount');
+        print('📊 Scrutins comptés (optimisé) - Motions: $motionCount, Lois: $loiCount, Autres: $autresScrutinsCount');
+        if (scrutinDuJour != null) {
+          print('🗳️ Scrutin du jour: ${scrutinDuJour!.titre}');
+        }
       }
     } catch (e) {
       print('❌ Erreur lors du chargement des scrutins: $e');
@@ -340,6 +333,11 @@ class _HomePageState extends State<HomePage> {
                   child: _buildHeader(context),
                 ),
 
+                // Vote du jour - Hero Section
+                SliverToBoxAdapter(
+                  child: _buildVoteDuJour(),
+                ),
+
                 // Grid de cartes avec les 4 tuiles
                 SliverPadding(
                   padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
@@ -363,6 +361,167 @@ class _HomePageState extends State<HomePage> {
 
 
         ],
+      ),
+    );
+  }
+
+  Widget _buildVoteDuJour() {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
+      child: GestureDetector(
+        onTap: () {
+          if (scrutinDuJour != null) {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => ScrutinDetailPage(scrutin: scrutinDuJour!),
+              ),
+            );
+          }
+        },
+        child: Container(
+          width: double.infinity,
+          decoration: BoxDecoration(
+            color: const Color(0xFFE8F4E8),
+            borderRadius: BorderRadius.circular(35),
+            border: Border.all(
+              color: Colors.white,
+              width: 4,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: const Color(0xFF556B2F).withOpacity(0.15),
+                blurRadius: 25,
+                offset: const Offset(0, 15),
+              ),
+            ],
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(31), // 35 - 4 (border width)
+            child: Stack(
+              children: [
+                // Forme principale (très grande) - en bordure de toute la carte
+                Positioned(
+                  right: -160,
+                  top: -160,
+                  child: Container(
+                    width: 320,
+                    height: 320,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF556B2F).withOpacity(0.3),
+                      borderRadius: BorderRadius.circular(160),
+                    ),
+                  ),
+                ),
+                // Forme moyenne - décalée
+                Positioned(
+                  right: -80,
+                  top: -60,
+                  child: Container(
+                    width: 220,
+                    height: 220,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF8FBC8F).withOpacity(0.4),
+                      borderRadius: BorderRadius.circular(110),
+                    ),
+                  ),
+                ),
+                // Petite forme - accent visible
+                Positioned(
+                  right: 30,
+                  top: 30,
+                  child: Container(
+                    width: 120,
+                    height: 120,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFDEB887).withOpacity(0.6),
+                      borderRadius: BorderRadius.circular(60),
+                    ),
+                  ),
+                ),
+
+                // Contenu principal de la carte
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(28),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Titre principal
+                      const Text(
+                        'Découvrez le\nvote du jour!',
+                        style: TextStyle(
+                          fontSize: 32,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF2C3E50),
+                          height: 1.2,
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+
+                      // Contenu du scrutin
+                      if (isLoadingScrutins)
+                        const Center(
+                          child: Padding(
+                            padding: EdgeInsets.symmetric(vertical: 20),
+                            child: CircularProgressIndicator(
+                              color: Color(0xFF556B2F),
+                            ),
+                          ),
+                        )
+                      else if (scrutinDuJour != null)
+                        SizedBox(
+                          width: double.infinity,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              if (scrutinDuJour!.sousTitre != null &&
+                                  scrutinDuJour!.sousTitre!.isNotEmpty)
+                                Text(
+                                  scrutinDuJour!.sousTitre!.isNotEmpty
+                                      ? '${scrutinDuJour!.sousTitre![0].toUpperCase()}${scrutinDuJour!.sousTitre!.substring(1)}'
+                                      : scrutinDuJour!.sousTitre!,
+                                  style: const TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w600,
+                                    color: Color(0xFF2C3E50),
+                                    height: 1.3,
+                                  ),
+                                  maxLines: 5,
+                                  overflow: TextOverflow.ellipsis,
+                                )
+                              else if (scrutinDuJour!.titre != null)
+                                Text(
+                                  scrutinDuJour!.titre!.isNotEmpty
+                                      ? '${scrutinDuJour!.titre![0].toUpperCase()}${scrutinDuJour!.titre!.substring(1)}'
+                                      : scrutinDuJour!.titre!,
+                                  style: const TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w600,
+                                    color: Color(0xFF2C3E50),
+                                    height: 1.3,
+                                  ),
+                                  maxLines: 5,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                            ],
+                          ),
+                        )
+                      else
+                        const Text(
+                          'Aucun scrutin disponible',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: Color(0xFF556B2F),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -974,10 +1133,14 @@ class _HomePageState extends State<HomePage> {
 
   Widget _buildLatestVotesCard() {
     return GestureDetector(
-      onTap: () => Navigator.push(
-        context,
-        MaterialPageRoute(builder: (context) => const ScrutinsPage()),
-      ),
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => const ScrutinsPage(),
+          ),
+        );
+      },
       child: Stack(
         children: [
           // Container principal de la carte
