@@ -329,4 +329,19 @@ class DatabaseService {
       return false;
     }
   }
+
+  // Vider le cache de la base de données
+  Future<void> clearCache() async {
+    try {
+      final db = await database;
+      
+      // Exécuter VACUUM pour optimiser et nettoyer la base de données
+      await db.execute('VACUUM');
+      
+      print('✅ Cache de la base de données vidé avec succès');
+    } catch (e) {
+      print('❌ Erreur lors du vidage du cache: $e');
+      rethrow;
+    }
+  }
 }

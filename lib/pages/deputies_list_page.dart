@@ -308,9 +308,9 @@ class _DeputiesListPageState extends State<DeputiesListPage> {
         minAge = minAge == null ? deputy.age! : (deputy.age! < minAge ? deputy.age! : minAge);
         maxAge = maxAge == null ? deputy.age! : (deputy.age! > maxAge ? deputy.age! : maxAge);
       }
-      if (deputy.experienceDepute != null) {
-        minExp = minExp == null ? deputy.experienceDepute! : (deputy.experienceDepute! < minExp ? deputy.experienceDepute! : minExp);
-        maxExp = maxExp == null ? deputy.experienceDepute! : (deputy.experienceDepute! > maxExp ? deputy.experienceDepute! : maxExp);
+      if (deputy.experienceDeputeAsInt != null) {
+        minExp = minExp == null ? deputy.experienceDeputeAsInt! : (deputy.experienceDeputeAsInt! < minExp ? deputy.experienceDeputeAsInt! : minExp);
+        maxExp = maxExp == null ? deputy.experienceDeputeAsInt! : (deputy.experienceDeputeAsInt! > maxExp ? deputy.experienceDeputeAsInt! : maxExp);
       }
       if (deputy.scoreLoyaute != null) {
         minLoy = minLoy == null ? deputy.scoreLoyaute! : (deputy.scoreLoyaute! < minLoy ? deputy.scoreLoyaute! : minLoy);
@@ -2310,9 +2310,9 @@ class _DeputiesListPageState extends State<DeputiesListPage> {
       if (_experienceRange != null &&
           (_experienceRange!.start > _minExperience.toDouble() || _experienceRange!.end < _maxExperience.toDouble())) {
         filtered = filtered.where((d) {
-          if (d.experienceDepute == null) return false;
-          return d.experienceDepute! >= _experienceRange!.start.round() && 
-                 d.experienceDepute! <= _experienceRange!.end.round();
+          if (d.experienceDeputeAsInt == null) return false;
+          return d.experienceDeputeAsInt! >= _experienceRange!.start.round() && 
+                 d.experienceDeputeAsInt! <= _experienceRange!.end.round();
         }).toList();
       }
       

@@ -16,6 +16,9 @@ class DeputyModel {
   final String? profession;
   final String? villeNaissance;
   final String? mail;
+  final String? twitter;
+  final String? facebook;
+  final String? website;
   final String? collaborateurs;
   final DateTime? datePriseFonction;
   final DateTime? dateFin;
@@ -24,7 +27,7 @@ class DeputyModel {
   final double? scoreMajorite;
   final double? scoreParticipation;
   final double? scoreParticipationSpectialite;
-  final int? experienceDepute;
+  final String? experienceDepute;
   final int? nombreMandats;
   final DateTime? createdAt;
   final DateTime? updatedAt;
@@ -35,6 +38,9 @@ class DeputyModel {
   final String? famillePolLibelleDb;
   final String? legislature;
   final int? active;
+  final String? typeOrganeMandats;
+  final String? organeRefMandats;
+  final String? codeQualite;
 
   DeputyModel({
     required this.id,
@@ -54,6 +60,9 @@ class DeputyModel {
     this.profession,
     this.villeNaissance,
     this.mail,
+    this.twitter,
+    this.facebook,
+    this.website,
     this.collaborateurs,
     this.datePriseFonction,
     this.dateFin,
@@ -73,6 +82,9 @@ class DeputyModel {
     this.famillePolLibelleDb,
     this.legislature,
     this.active,
+    this.typeOrganeMandats,
+    this.organeRefMandats,
+    this.codeQualite,
   });
 
   // Nom complet pour l'affichage
@@ -107,6 +119,61 @@ class DeputyModel {
     return 'Circonscription non définie';
   }
 
+  // Circonscription avec numéro formaté
+  String get circonscriptionAvecNumero {
+    String base = '';
+    if (libelle != null && libelle!.isNotEmpty) {
+      base = libelle!;
+    } else if (dep != null) {
+      base = dep!;
+    }
+    
+    if (codeCirco != null && codeCirco!.isNotEmpty) {
+      return '$base (Circonscription n°$codeCirco)';
+    }
+    return base.isNotEmpty ? base : 'Circonscription non définie';
+  }
+
+  // Convertir experienceDepute string en int (années) pour les filtres
+  int? get experienceDeputeAsInt {
+    if (experienceDepute == null || experienceDepute!.isEmpty) return null;
+    
+    // Extraire le nombre du string
+    final match = RegExp(r'\d+').firstMatch(experienceDepute!);
+    if (match == null) return null;
+    
+    final value = int.tryParse(match.group(0)!);
+    if (value == null) return null;
+    
+    // Si c'est en mois, convertir en années (arrondi à l'inférieur)
+    if (experienceDepute!.toLowerCase().contains('mois')) {
+      return (value / 12).floor();
+    }
+    
+    // Sinon c'est en années
+    return value;
+  }
+
+  // Parser les listes de mandats
+  List<String> get typeOrganeMandatsList {
+    if (typeOrganeMandats == null || typeOrganeMandats!.isEmpty) return [];
+    // Format: ['PARPOL', 'GP', 'COMPER'] ou "{PARPOL,GP,COMPER}"
+    final cleaned = typeOrganeMandats!.replaceAll('{', '').replaceAll('}', '');
+    return cleaned.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
+  }
+
+  List<String> get organeRefMandatsList {
+    if (organeRefMandats == null || organeRefMandats!.isEmpty) return [];
+    final cleaned = organeRefMandats!.replaceAll('{', '').replaceAll('}', '');
+    return cleaned.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
+  }
+
+  List<String> get codeQualiteList {
+    if (codeQualite == null || codeQualite!.isEmpty) return [];
+    final cleaned = codeQualite!.replaceAll('{', '').replaceAll('}', '');
+    return cleaned.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
+  }
+
   factory DeputyModel.fromJson(Map<String, dynamic> json) {
     return DeputyModel(
       id: json['id']?.toString() ?? '',
@@ -130,6 +197,9 @@ class DeputyModel {
       profession: json['profession']?.toString() ?? json['job']?.toString(),
       villeNaissance: json['villeNaissance']?.toString() ?? json['ville_naissance']?.toString(),
       mail: json['mail']?.toString(),
+      twitter: json['twitter']?.toString(),
+      facebook: json['facebook']?.toString(),
+      website: json['website']?.toString(),
       collaborateurs: json['collaborateurs']?.toString(),
       datePriseFonction: _parseDate(json['datePriseFonction'] ?? json['date_prise_fonction']),
       dateFin: _parseDate(json['dateFin'] ?? json['date_fin']),
@@ -138,7 +208,7 @@ class DeputyModel {
       scoreMajorite: _parseDouble(json['scoreMajorite'] ?? json['score_majorite']),
       scoreParticipation: _parseDouble(json['scoreParticipation'] ?? json['score_participation']),
       scoreParticipationSpectialite: _parseDouble(json['scoreParticipationSpectialite'] ?? json['score_participation_spectialite']),
-      experienceDepute: _parseInt(json['experienceDepute'] ?? json['experience_depute']),
+      experienceDepute: json['experienceDepute']?.toString() ?? json['experience_depute']?.toString(),
       nombreMandats: _parseInt(json['nombreMandats'] ?? json['nombre_mandats']),
       createdAt: _parseDate(json['createdAt'] ?? json['created_at']),
       updatedAt: _parseDate(json['updatedAt'] ?? json['updated_at']),
@@ -151,6 +221,9 @@ class DeputyModel {
                            json['groupe']?.toString(),
       legislature: json['legislature']?.toString(),
       active: _parseInt(json['active']),
+      typeOrganeMandats: json['typeOrganeMandats']?.toString() ?? json['type_organe_mandats']?.toString(),
+      organeRefMandats: json['organeRefMandats']?.toString() ?? json['organe_ref_mandats']?.toString(),
+      codeQualite: json['codeQualite']?.toString() ?? json['code_qualite']?.toString(),
     );
   }
 
@@ -192,6 +265,9 @@ class DeputyModel {
       'famillePolLibelleDb': famillePolLibelleDb,
       'legislature': legislature,
       'active': active,
+      'typeOrganeMandats': typeOrganeMandats,
+      'organeRefMandats': organeRefMandats,
+      'codeQualite': codeQualite,
     };
   }
 

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../data/models/deputy_model.dart';
 import '../widgets/hemicycle_widget.dart';
+import '../services/api_service.dart';
 
 class MandatInfo {
   final String statut;
@@ -30,12 +31,17 @@ class _DeputyDetailPageState extends State<DeputyDetailPage> {
   late DeputyModel _deputy;
   late PageController _pageController;
   int _currentPage = 0;
+  
+  // Cache pour les libellés d'organes
+  final Map<String, String> _organeLibelleCache = {};
+  bool _organesLoaded = false;
 
   @override
   void initState() {
     super.initState();
     _deputy = widget.deputy;
     _pageController = PageController();
+    _loadAllOrganes(); // Charger tous les organes une seule fois
   }
 
   @override
@@ -50,7 +56,7 @@ class _DeputyDetailPageState extends State<DeputyDetailPage> {
     return 'https://www.assemblee-nationale.fr/dyn/static/tribun/17/photos/carre/$photoId.jpg';
   }
 
-  Future<void> _launchUrl(String url) async {
+  Future<void> _launchUrl(String url, {String? message}) async {
     print('Ouverture URL: $url');
     try {
       final uri = Uri.parse(url);
@@ -66,11 +72,11 @@ class _DeputyDetailPageState extends State<DeputyDetailPage> {
 
       if (launched) {
         print('✅ URL ouverte avec succès en mode externe');
-        if (mounted) {
+        if (mounted && message != null) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Ouverture de la déclaration de patrimoine...'),
-              duration: Duration(seconds: 2),
+            SnackBar(
+              content: Text(message),
+              duration: const Duration(seconds: 2),
               backgroundColor: Colors.green,
             ),
           );
@@ -109,58 +115,133 @@ class _DeputyDetailPageState extends State<DeputyDetailPage> {
     }
   }
 
-  Widget _buildDeputyAvatar(DeputyModel deputy) {
-    return CircleAvatar(
-      radius: 36,
-      backgroundColor: Theme.of(context).colorScheme.primary,
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(36),
-        child: Image.network(
-          _getDeputyPhotoUrl(deputy.id),
-          width: 72,
-          height: 72,
-          fit: BoxFit.cover,
-          errorBuilder: (context, error, stackTrace) {
-            // Si la photo ne charge pas, afficher les initiales
-            return Container(
-              width: 72,
-              height: 72,
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.primary,
-                shape: BoxShape.circle,
-              ),
-              child: Center(
-                child: Text(
-                  '${deputy.prenom[0]}${deputy.nom[0]}',
-                  style: const TextStyle(
-                    fontSize: 28,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
+  String _formatWebsiteUrl(String website) {
+    String url = website.trim();
+    
+    // Si l'URL commence déjà par http:// ou https://, la retourner telle quelle
+    if (url.startsWith('http://') || url.startsWith('https://')) {
+      return url;
+    }
+    
+    // Si l'URL ne commence pas par www., l'ajouter
+    if (!url.startsWith('www.')) {
+      url = 'www.$url';
+    }
+    
+    // Ajouter le protocole https://
+    return 'https://$url';
+  }
+
+  void _showEnlargedPhoto() {
+    showDialog(
+      context: context,
+      builder: (context) => GestureDetector(
+        onTap: () => Navigator.pop(context),
+        child: Dialog(
+          backgroundColor: Colors.transparent,
+          child: GestureDetector(
+            onTap: () {}, // Empêche la propagation du clic sur l'image
+            child: Center(
+              child: Container(
+                width: 300,
+                height: 300,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.3),
+                      blurRadius: 20,
+                      offset: const Offset(0, 10),
+                    ),
+                  ],
+                ),
+                child: ClipOval(
+                  child: Image.network(
+                    _getDeputyPhotoUrl(_deputy.id),
+                    fit: BoxFit.cover,
+                    errorBuilder: (context, error, stackTrace) {
+                      return Container(
+                        decoration: const BoxDecoration(
+                          color: Color(0xFF556B2F),
+                          shape: BoxShape.circle,
+                        ),
+                        child: Center(
+                          child: Text(
+                            '${_deputy.prenom[0]}${_deputy.nom[0]}',
+                            style: const TextStyle(
+                              fontSize: 80,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
+                      );
+                    },
                   ),
                 ),
               ),
-            );
-          },
-          loadingBuilder: (context, child, loadingProgress) {
-            if (loadingProgress == null) {
-              return child;
-            }
-            // Pendant le chargement, afficher un indicateur
-            return Container(
-              width: 72,
-              height: 72,
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.primary.withOpacity(0.3),
-                shape: BoxShape.circle,
-              ),
-              child: const Center(
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDeputyAvatar(DeputyModel deputy) {
+    return GestureDetector(
+      onTap: _showEnlargedPhoto,
+      child: CircleAvatar(
+        radius: 36,
+        backgroundColor: Theme.of(context).colorScheme.primary,
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(36),
+          child: Image.network(
+            _getDeputyPhotoUrl(deputy.id),
+            width: 72,
+            height: 72,
+            fit: BoxFit.cover,
+            errorBuilder: (context, error, stackTrace) {
+              // Si la photo ne charge pas, afficher les initiales
+              return Container(
+                width: 72,
+                height: 72,
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.primary,
+                  shape: BoxShape.circle,
                 ),
-              ),
-            );
-          },
+                child: Center(
+                  child: Text(
+                    '${deputy.prenom[0]}${deputy.nom[0]}',
+                    style: const TextStyle(
+                      fontSize: 28,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+              );
+            },
+            loadingBuilder: (context, child, loadingProgress) {
+              if (loadingProgress == null) {
+                return child;
+              }
+              // Pendant le chargement, afficher un indicateur
+              return Container(
+                width: 72,
+                height: 72,
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.primary.withOpacity(0.3),
+                  shape: BoxShape.circle,
+                ),
+                child: const Center(
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                  ),
+                ),
+              );
+            },
+          ),
         ),
       ),
     );
@@ -263,12 +344,14 @@ class _DeputyDetailPageState extends State<DeputyDetailPage> {
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
                               _buildPageIndicator(0, 'Informations'),
-                              const SizedBox(width: 12),
-                              _buildPageIndicator(1, 'Mandats'),
-                              const SizedBox(width: 12),
-                              _buildPageIndicator(2, 'Votes'),
-                              const SizedBox(width: 12),
-                              _buildPageIndicator(3, 'Performance'),
+                              if (_deputy.active == 1) ...[
+                                const SizedBox(width: 12),
+                                _buildPageIndicator(1, 'Mandats'),
+                                const SizedBox(width: 12),
+                                _buildPageIndicator(2, 'Votes'),
+                                const SizedBox(width: 12),
+                                _buildPageIndicator(3, 'Performance'),
+                              ],
                             ],
                           ),
                         ),
@@ -286,11 +369,11 @@ class _DeputyDetailPageState extends State<DeputyDetailPage> {
                             // Bloc 1: Données personnelles + Transparence + Parti politique
                             _buildPersonalInfoPage(),
                             // Bloc 2: Autres mandats et fonctions
-                            _buildMandatsPage(),
+                            if (_deputy.active == 1) _buildMandatsPage(),
                             // Bloc 3: Votes à l'Assemblée
-                            _buildVotesPage(),
+                            if (_deputy.active == 1) _buildVotesPage(),
                             // Bloc 4: Performance et comportement
-                            _buildPerformancePage(),
+                            if (_deputy.active == 1) _buildPerformancePage(),
                           ],
                         ),
                       ),
@@ -423,23 +506,67 @@ class _DeputyDetailPageState extends State<DeputyDetailPage> {
     );
   }
 
-  String _getPartiPolitiqueLibelle() {
-    // Essayer d'abord le libellé depuis la DB (JOIN avec groupePolitique)
-    if (_deputy.famillePolLibelleDb != null && _deputy.famillePolLibelleDb!.isNotEmpty) {
-      return _deputy.famillePolLibelleDb!;
-    }
-    
-    // Fallback vers les champs existants
-    if (_deputy.famillePolLibelle != null && _deputy.famillePolLibelle!.isNotEmpty) {
-      return _deputy.famillePolLibelle!;
-    }
-    
-    // Utiliser famillesPol comme dernier recours
-    if (_deputy.famillesPol != null && _deputy.famillesPol!.isNotEmpty) {
-      return _deputy.famillesPol!;
-    }
-    
-    return 'Non spécifié';
+  Widget _buildContactRow(IconData icon, String label, String value, String url) {
+    return GestureDetector(
+      onTap: () => _launchUrl(url), // Pas de message pour les contacts
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: const Color(0xFF556B2F).withOpacity(0.05),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: const Color(0xFF556B2F).withOpacity(0.1),
+            width: 1,
+          ),
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: const Color(0xFF556B2F).withOpacity(0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(
+                icon,
+                color: const Color(0xFF556B2F),
+                size: 20,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey[600],
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    value,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      color: Color(0xFF556B2F),
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(
+              Icons.open_in_new,
+              size: 16,
+              color: Color(0xFF556B2F),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Widget _buildPersonalInfoPage() {
@@ -472,17 +599,58 @@ class _DeputyDetailPageState extends State<DeputyDetailPage> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        _deputy.fullName,
-                        style: const TextStyle(
-                          fontSize: 22,
-                          fontWeight: FontWeight.bold,
-                          color: Color(0xFF556B2F),
-                        ),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              _deputy.fullName,
+                              style: const TextStyle(
+                                fontSize: 22,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFF556B2F),
+                              ),
+                            ),
+                          ),
+                          if (_deputy.active == 1)
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 10, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: Colors.green.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(20),
+                                border: Border.all(
+                                  color: Colors.green,
+                                  width: 1.5,
+                                ),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Container(
+                                    width: 8,
+                                    height: 8,
+                                    decoration: const BoxDecoration(
+                                      color: Colors.green,
+                                      shape: BoxShape.circle,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  const Text(
+                                    'En activité',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: Colors.green,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                        ],
                       ),
-                      const SizedBox(height: 8),
-                      if (_deputy.famillePolLibelle != null &&
-                          _deputy.famillePolLibelle!.isNotEmpty)
+                      const SizedBox(height: 6),
+                      if ((_deputy.famillePolLibelle != null && _deputy.famillePolLibelle!.isNotEmpty) ||
+                          (_deputy.famillePolLibelleDb != null && _deputy.famillePolLibelleDb!.isNotEmpty))
                         Container(
                           padding: const EdgeInsets.symmetric(
                               horizontal: 12, vertical: 6),
@@ -491,9 +659,9 @@ class _DeputyDetailPageState extends State<DeputyDetailPage> {
                             borderRadius: BorderRadius.circular(12),
                           ),
                           child: Text(
-                            _deputy.famillePolLibelle!,
+                            _deputy.famillePolLibelleDb ?? _deputy.famillePolLibelle ?? '',
                             style: const TextStyle(
-                              fontSize: 14,
+                              fontSize: 13,
                               color: Color(0xFF556B2F),
                               fontWeight: FontWeight.w600,
                             ),
@@ -501,9 +669,9 @@ class _DeputyDetailPageState extends State<DeputyDetailPage> {
                         ),
                       const SizedBox(height: 8),
                       Text(
-                        _deputy.circonscriptionComplete,
+                        _deputy.circonscriptionAvecNumero,
                         style: TextStyle(
-                          fontSize: 14,
+                          fontSize: 13,
                           color: Colors.grey[600],
                         ),
                       ),
@@ -515,6 +683,63 @@ class _DeputyDetailPageState extends State<DeputyDetailPage> {
           ),
           const SizedBox(height: 20),
 
+          // Législature (si député non actif)
+          if (_deputy.active == 0 && _deputy.legislature != null && _deputy.legislature!.isNotEmpty)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              margin: const EdgeInsets.only(bottom: 20),
+              decoration: BoxDecoration(
+                color: Colors.orange.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(15),
+                border: Border.all(
+                  color: Colors.orange.withOpacity(0.3),
+                  width: 1.5,
+                ),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: Colors.orange.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Icon(
+                      Icons.info_outline,
+                      color: Colors.orange,
+                      size: 20,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Député non actif',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.orange,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Législature ${_deputy.legislature}',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: Colors.grey[700],
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
           // Informations personnelles
           _buildSectionCard('Informations personnelles', [
             if (_deputy.dateNaissance != null && _age != null) ...[
@@ -523,6 +748,8 @@ class _DeputyDetailPageState extends State<DeputyDetailPage> {
                 '${_formatDate(_deputy.dateNaissance!)} ($_age ans)',
               ),
             ],
+            if (_deputy.villeNaissance != null && _deputy.villeNaissance!.isNotEmpty)
+              _buildInfoRow('Ville de naissance', _deputy.villeNaissance!),
             if (_deputy.profession != null && _deputy.profession!.isNotEmpty)
               _buildInfoRow('Profession', _deputy.profession!),
             if (_deputy.catSocPro != null && _deputy.catSocPro!.isNotEmpty)
@@ -530,10 +757,8 @@ class _DeputyDetailPageState extends State<DeputyDetailPage> {
             if (_deputy.nombreMandats != null)
               _buildInfoRow(
                 'Nombre de mandats',
-                '${_deputy.nombreMandats}${_deputy.experienceDepute != null ? ' (${_deputy.experienceDepute} ans d\'expérience)' : ''}',
+                '${_deputy.nombreMandats}${_deputy.experienceDepute != null && _deputy.experienceDepute!.isNotEmpty ? ' (${_deputy.experienceDepute})' : ''}',
               ),
-            if (_deputy.mail != null && _deputy.mail!.isNotEmpty)
-              _buildInfoRow('Contact', _deputy.mail!),
           ]),
           const SizedBox(height: 16),
 
@@ -584,7 +809,7 @@ class _DeputyDetailPageState extends State<DeputyDetailPage> {
                   ),
                   const SizedBox(height: 16),
                   GestureDetector(
-                    onTap: () => _launchUrl(_deputy.uriHatvp!),
+                    onTap: () => _launchUrl(_deputy.uriHatvp!, message: 'Ouverture de la déclaration de patrimoine...'),
                     child: Container(
                       width: double.infinity,
                       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
@@ -676,33 +901,103 @@ class _DeputyDetailPageState extends State<DeputyDetailPage> {
               ),
             ),
 
-          // Parti politique
-          _buildSectionCard('Parti politique', [
-            SizedBox(
-              width: double.infinity,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    _getPartiPolitiqueLibelle(),
-                    style: const TextStyle(
-                      fontSize: 16,
-                      color: Color(0xFF556B2F),
-                      fontWeight: FontWeight.w500,
-                    ),
+          // Contact
+          _buildSectionCard('Contact', [
+            if (_deputy.mail != null && _deputy.mail!.isNotEmpty)
+              _buildContactRow(
+                Icons.email_outlined,
+                'Email',
+                _deputy.mail!,
+                'mailto:${_deputy.mail}',
+              ),
+            if (_deputy.twitter != null && _deputy.twitter!.trim().isNotEmpty) ...[
+              const SizedBox(height: 12),
+              _buildContactRow(
+                Icons.tag,
+                'Twitter',
+                _deputy.twitter!,
+                _deputy.twitter!.startsWith('http') ? _deputy.twitter! : 'https://twitter.com/${_deputy.twitter!.replaceAll('@', '')}',
+              ),
+            ],
+            if (_deputy.facebook != null && _deputy.facebook!.trim().isNotEmpty) ...[
+              const SizedBox(height: 12),
+              _buildContactRow(
+                Icons.facebook,
+                'Facebook',
+                _deputy.facebook!,
+                _deputy.facebook!.startsWith('http') ? _deputy.facebook! : 'https://facebook.com/${_deputy.facebook}',
+              ),
+            ],
+            if (_deputy.website != null && _deputy.website!.trim().isNotEmpty) ...[
+              const SizedBox(height: 12),
+              _buildContactRow(
+                Icons.language,
+                'Site web',
+                _deputy.website!,
+                _formatWebsiteUrl(_deputy.website!),
+              ),
+            ],
+          ]),
+          const SizedBox(height: 16),
+
+          // Place hémicycle
+          _buildSectionCard('Place hémicycle', [
+            HemicycleWidget(
+              placeHemicycle: _deputy.placeHemicycle,
+              groupeAbrev: _deputy.famillesPol,
+              famillePolLibelle: _deputy.famillePolLibelle ??
+                  _deputy.famillePolLibelleDb,
+            ),
+          ]),
+          const SizedBox(height: 16),
+
+          // Collaborateurs
+          if (_deputy.collaborateurs != null && _deputy.collaborateurs!.trim().isNotEmpty)
+            _buildSectionCard('Collaborateurs', [
+              Padding(
+                padding: const EdgeInsets.all(0),
+                child: Text(
+                  _deputy.collaborateurs!,
+                  style: const TextStyle(
+                    fontSize: 15,
+                    color: Color(0xFF556B2F),
+                    height: 1.5,
                   ),
-                  const SizedBox(height: 16),
-                  HemicycleWidget(
-                    placeHemicycle: _deputy.placeHemicycle,
-                    groupeAbrev: _deputy.famillesPol,
-                    famillePolLibelle: _deputy.famillePolLibelle ??
-                        _deputy.famillePolLibelleDb,
+                ),
+              ),
+            ]),
+          const SizedBox(height: 24),
+
+          // Mise à jour
+          if (_deputy.updatedAt != null)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              margin: const EdgeInsets.only(bottom: 16),
+              decoration: BoxDecoration(
+                color: Colors.grey.shade100,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.update,
+                    size: 16,
+                    color: Colors.grey.shade600,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Informations du député mises à jour le ${_formatDate(_deputy.updatedAt!)}',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey.shade700,
+                      fontStyle: FontStyle.italic,
+                    ),
                   ),
                 ],
               ),
             ),
-          ]),
-          const SizedBox(height: 24),
 
           // Sources
           _buildSourcesCard(),
@@ -721,11 +1016,8 @@ class _DeputyDetailPageState extends State<DeputyDetailPage> {
         children: [
           const SizedBox(height: 20),
 
-          // Section des mandats
-          if (_deputy.mandatsResume != null && _deputy.mandatsResume!.isNotEmpty)
-            _buildStructuredMandatsCard()
-          else
-            _buildEmptyMandatsCard(),
+          // Cartes de mandats par type d'organe
+          ..._buildMandatsCardsByType(),
 
           const SizedBox(height: 24),
 
@@ -736,6 +1028,231 @@ class _DeputyDetailPageState extends State<DeputyDetailPage> {
         ],
       ),
     );
+  }
+
+  List<Widget> _buildMandatsCardsByType() {
+    final typeOrganes = _deputy.typeOrganeMandatsList;
+    final organeRefs = _deputy.organeRefMandatsList;
+    final codeQualites = _deputy.codeQualiteList;
+
+    if (typeOrganes.isEmpty || organeRefs.isEmpty || codeQualites.isEmpty) {
+      return [_buildEmptyMandatsCard()];
+    }
+
+    // Grouper les mandats par type d'organe
+    final Map<String, List<Map<String, String>>> mandatsByType = {};
+
+    for (int i = 0; i < typeOrganes.length; i++) {
+      final type = typeOrganes[i];
+      final organeRef = i < organeRefs.length ? organeRefs[i] : '';
+      final qualite = i < codeQualites.length ? codeQualites[i] : '';
+
+      if (!mandatsByType.containsKey(type)) {
+        mandatsByType[type] = [];
+      }
+
+      mandatsByType[type]!.add({
+        'organeRef': organeRef,
+        'qualite': qualite,
+      });
+    }
+
+    // Créer une carte par type d'organe
+    final List<Widget> cards = [];
+    
+    // Ordre d'affichage des types
+    final typeOrder = {
+      'GP': 'Groupe politique',
+      'COMPER': 'Commission permanente',
+      'GE': 'Groupes d\'études',
+      'GEVI': 'Groupe d\'étude à vocation internationale',
+      'GA': 'Groupes d\'amitié',
+      'DELEG': 'Délégation',
+    };
+
+    typeOrder.forEach((typeCode, typeLabel) {
+      if (mandatsByType.containsKey(typeCode)) {
+        cards.add(_buildMandatTypeCard(typeLabel, mandatsByType[typeCode]!));
+        cards.add(const SizedBox(height: 16));
+      }
+    });
+
+    // Ajouter les types non gérés (sauf PARPOL et ASSEMBLEE)
+    mandatsByType.forEach((typeCode, mandats) {
+      // Nettoyer le typeCode des crochets éventuels
+      final cleanTypeCode = typeCode.replaceAll('[', '').replaceAll(']', '').trim();
+      
+      if (!typeOrder.containsKey(cleanTypeCode) && 
+          cleanTypeCode != 'PARPOL' && 
+          cleanTypeCode != 'ASSEMBLEE') {
+        cards.add(_buildMandatTypeCard(cleanTypeCode, mandats));
+        cards.add(const SizedBox(height: 16));
+      }
+    });
+
+    return cards.isNotEmpty ? cards : [_buildEmptyMandatsCard()];
+  }
+
+  Widget _buildMandatTypeCard(String typeLabel, List<Map<String, String>> mandats) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.95),
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.08),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF556B2F).withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(
+                  Icons.work_outline,
+                  color: Color(0xFF556B2F),
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  typeLabel,
+                  style: const TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF556B2F),
+                  ),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF556B2F).withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  '${mandats.length}',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF556B2F),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          
+          // Liste des mandats
+          ...mandats.asMap().entries.map((entry) {
+            final index = entry.key;
+            final mandat = entry.value;
+            return Column(
+              children: [
+                if (index > 0) const Divider(height: 20),
+                _buildMandatItem(mandat),
+              ],
+            );
+          }).toList(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMandatItem(Map<String, String> mandat) {
+    final organeRef = mandat['organeRef'] ?? '';
+    final qualite = mandat['qualite'] ?? '';
+
+    // Utiliser directement le cache (synchrone) au lieu de FutureBuilder
+    final libelle = _organeLibelleCache[organeRef] ?? organeRef;
+    
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          margin: const EdgeInsets.only(top: 4),
+          width: 6,
+          height: 6,
+          decoration: const BoxDecoration(
+            color: Color(0xFF556B2F),
+            shape: BoxShape.circle,
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: RichText(
+            text: TextSpan(
+              style: const TextStyle(
+                fontSize: 15,
+                color: Colors.black87,
+                height: 1.5,
+              ),
+              children: [
+                TextSpan(text: libelle),
+                if (qualite.isNotEmpty) ...[
+                  const TextSpan(
+                    text: ' : ',
+                    style: TextStyle(color: Colors.grey),
+                  ),
+                  TextSpan(
+                    text: qualite,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF556B2F),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // Charger tous les organes une seule fois au démarrage
+  Future<void> _loadAllOrganes() async {
+    if (_organesLoaded) return;
+    
+    try {
+      final organes = await ApiService.getAllOrganes();
+      for (var organe in organes) {
+        final uid = organe['uid'] ?? organe['id'];
+        if (uid != null) {
+          final libelle = organe['libelle'] ?? organe['libelleAbrev'] ?? uid;
+          _organeLibelleCache[uid] = libelle;
+        }
+      }
+      _organesLoaded = true;
+      if (mounted) setState(() {});
+    } catch (e) {
+      print('Erreur chargement organes: $e');
+    }
+  }
+
+  Future<String> _getOrganeLibelle(String organeRef) async {
+    if (organeRef.isEmpty) return 'Organe inconnu';
+    
+    // Attendre que les organes soient chargés
+    if (!_organesLoaded) {
+      await _loadAllOrganes();
+    }
+    
+    // Retourner depuis le cache
+    return _organeLibelleCache[organeRef] ?? organeRef;
   }
 
   Widget _buildStructuredMandatsCard() {
@@ -1031,7 +1548,7 @@ class _DeputyDetailPageState extends State<DeputyDetailPage> {
       case 'GE':
         return MandatTypeInfo('Groupe d\'études', Icons.school_outlined);
       case 'GEVI':
-        return MandatTypeInfo('Groupe d\'études à vocation internationale', Icons.language_outlined);
+        return MandatTypeInfo('Groupe d\'étude à vocation internationale', Icons.language_outlined);
       case 'COMPER':
         return MandatTypeInfo('Commission permanente', Icons.account_balance_outlined);
       case 'ORGEXTPARL':

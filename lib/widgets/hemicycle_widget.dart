@@ -38,16 +38,31 @@ class _HemicycleWidgetState extends State<HemicycleWidget> {
       String modifiedContent = svgContent;
       
       if (widget.placeHemicycle != null && widget.placeHemicycle!.isNotEmpty) {
+        final placeNumber = _getPlaceNumber();
         final deputyColor = _getGroupeColor(widget.famillePolLibelle ?? widget.groupeAbrev ?? '');
         final colorHex = '#${deputyColor.value.toRadixString(16).substring(2)}';
         
+        print('🎨 Coloration place: $placeNumber avec couleur $colorHex');
+        
         // Remplacer la couleur du path correspondant à la place du député
-        final placePattern = RegExp(r'<path[^>]*place="' + RegExp.escape(widget.placeHemicycle!) + r'"[^>]*>');
-        modifiedContent = modifiedContent.replaceAllMapped(placePattern, (match) {
-          final pathElement = match.group(0)!;
-          // Remplacer fill="#cbcbcb" par la couleur du groupe politique
-          return pathElement.replaceFirst(RegExp(r'fill="[^"]*"'), 'fill="$colorHex"');
-        });
+        // Chercher place="XXX" avec le numéro exact
+        final placePattern = RegExp(r'place="' + placeNumber + r'"');
+        
+        if (modifiedContent.contains(placePattern)) {
+          print('✅ Place trouvée dans le SVG!');
+          // Remplacer fill="#cbcbcb" par la couleur du groupe pour cette place spécifique
+          modifiedContent = modifiedContent.replaceAllMapped(
+            RegExp(r'<path[^>]*place="' + placeNumber + r'"[^>]*>'),
+            (match) {
+              final pathElement = match.group(0)!;
+              final colored = pathElement.replaceFirst(RegExp(r'fill="[^"]*"'), 'fill="$colorHex"');
+              print('🖌️ Path colorié: ${colored.substring(0, 100)}...');
+              return colored;
+            },
+          );
+        } else {
+          print('❌ Place $placeNumber non trouvée dans le SVG');
+        }
       }
       
       setState(() {
@@ -60,6 +75,124 @@ class _HemicycleWidgetState extends State<HemicycleWidget> {
         _isLoading = false;
       });
     }
+  }
+
+  String _getPlaceNumber() {
+    if (widget.placeHemicycle == null || widget.placeHemicycle!.isEmpty) {
+      return '';
+    }
+    // Parser en int puis reconvertir en string pour enlever les virgules/décimales
+    final placeInt = int.tryParse(widget.placeHemicycle!);
+    if (placeInt != null) {
+      return placeInt.toString();
+    }
+    // Si parse échoue, tenter de parser en double puis convertir
+    final placeDouble = double.tryParse(widget.placeHemicycle!);
+    if (placeDouble != null) {
+      return placeDouble.toInt().toString();
+    }
+    return widget.placeHemicycle!;
+  }
+
+  void _showZoomedHemicycle() {
+    showDialog(
+      context: context,
+      builder: (context) => Dialog(
+        backgroundColor: Colors.transparent,
+        child: GestureDetector(
+          onTap: () => Navigator.pop(context),
+          child: Container(
+            constraints: BoxConstraints(
+              maxWidth: MediaQuery.of(context).size.width * 0.95,
+              maxHeight: MediaQuery.of(context).size.height * 0.6,
+            ),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(20),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.3),
+                  blurRadius: 20,
+                  offset: const Offset(0, 10),
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Header
+                Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: _getGroupeColor(widget.famillePolLibelle ?? widget.groupeAbrev).withOpacity(0.1),
+                    borderRadius: const BorderRadius.only(
+                      topLeft: Radius.circular(20),
+                      topRight: Radius.circular(20),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.account_balance,
+                        color: _getGroupeColor(widget.famillePolLibelle ?? widget.groupeAbrev),
+                        size: 28,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Place dans l\'hémicycle',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            if (widget.placeHemicycle != null && widget.placeHemicycle!.isNotEmpty)
+                              Text(
+                                'Place n°${_getPlaceNumber()}',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: Colors.grey[600],
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close),
+                        onPressed: () => Navigator.pop(context),
+                      ),
+                    ],
+                  ),
+                ),
+                // SVG zoomé
+                Flexible(
+                  child: Container(
+                    padding: const EdgeInsets.all(20),
+                    child: _isLoading
+                        ? const Center(
+                            child: CircularProgressIndicator(),
+                          )
+                        : _modifiedSvgContent != null
+                            ? InteractiveViewer(
+                                minScale: 0.5,
+                                maxScale: 4.0,
+                                child: SvgPicture.string(
+                                  _modifiedSvgContent!,
+                                  fit: BoxFit.contain,
+                                ),
+                              )
+                            : _buildCustomHemicycle(),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   Color _getGroupeColor(String? groupe) {
@@ -109,53 +242,36 @@ class _HemicycleWidgetState extends State<HemicycleWidget> {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.grey.shade50,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: Colors.grey.shade200,
-          width: 1,
-        ),
-      ),
-      child: Column(
-        children: [
-          // Titre de la section
-          Row(
-            children: [
-              Icon(
-                Icons.account_balance_outlined,
-                size: 18,
-                color: Colors.grey.shade600,
-              ),
-              const SizedBox(width: 8),
-              Text(
-                'Place dans l\'hémicycle',
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.grey.shade700,
-                ),
-              ),
-            ],
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Groupe politique
+        Text(
+          widget.famillePolLibelle ?? widget.groupeAbrev ?? 'Groupe politique',
+          style: const TextStyle(
+            fontSize: 16,
+            color: Color(0xFF556B2F),
+            fontWeight: FontWeight.w500,
           ),
-          const SizedBox(height: 12),
-          
-          // Affichage de l'hémicycle
-          Container(
+        ),
+        const SizedBox(height: 16),
+        
+        // Affichage de l'hémicycle
+        GestureDetector(
+          onTap: _showZoomedHemicycle,
+          child: Container(
             height: 160,
-            width: 280,
+            width: double.infinity,
             decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(8),
+              color: Colors.grey.shade50,
+              borderRadius: BorderRadius.circular(12),
               border: Border.all(
-                color: Colors.grey.shade300,
+                color: Colors.grey.shade200,
                 width: 1,
               ),
             ),
             child: ClipRRect(
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(12),
               child: _isLoading 
                 ? const Center(
                     child: CircularProgressIndicator(strokeWidth: 2),
@@ -169,47 +285,44 @@ class _HemicycleWidgetState extends State<HemicycleWidget> {
                   : _buildCustomHemicycle(),
             ),
           ),
-          
-          const SizedBox(height: 16),
-          
-          // Informations sur la place
-          if (widget.placeHemicycle != null && widget.placeHemicycle!.isNotEmpty)
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: _getGroupeColor(widget.famillePolLibelle ?? widget.groupeAbrev).withOpacity(0.1),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(
-                  color: _getGroupeColor(widget.famillePolLibelle ?? widget.groupeAbrev).withOpacity(0.3),
-                  width: 1,
-                ),
-              ),
-              child: Row(
-                children: [
-                  Container(
-                    width: 12,
-                    height: 12,
-                    decoration: BoxDecoration(
-                      color: _getGroupeColor(widget.famillePolLibelle ?? widget.groupeAbrev),
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Text(
-                    'Place n°${widget.placeHemicycle}',
-                    style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ],
+        ),
+        
+        const SizedBox(height: 16),
+        
+        // Numéro de place
+        if (widget.placeHemicycle != null && widget.placeHemicycle!.isNotEmpty)
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: _getGroupeColor(widget.famillePolLibelle ?? widget.groupeAbrev).withOpacity(0.1),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: _getGroupeColor(widget.famillePolLibelle ?? widget.groupeAbrev).withOpacity(0.3),
+                width: 1,
               ),
             ),
-          
-          const SizedBox(height: 12),
-
-        ],
-      ),
+            child: Row(
+              children: [
+                Container(
+                  width: 12,
+                  height: 12,
+                  decoration: BoxDecoration(
+                    color: _getGroupeColor(widget.famillePolLibelle ?? widget.groupeAbrev),
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  'Place n°${_getPlaceNumber()}',
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+      ],
     );
   }
 }
