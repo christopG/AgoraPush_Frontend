@@ -1593,67 +1593,7 @@ class _DeputyDetailPageState extends State<DeputyDetailPage> {
   }
 
   Widget _buildVotesPage() {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.symmetric(horizontal: 20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const SizedBox(height: 20),
-
-          // Section des votes (à compléter plus tard)
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.95),
-              borderRadius: BorderRadius.circular(20),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.1),
-                  blurRadius: 15,
-                  offset: const Offset(0, 5),
-                ),
-              ],
-            ),
-            child: Column(
-              children: [
-                Icon(
-                  Icons.how_to_vote_outlined,
-                  size: 48,
-                  color: Colors.grey[400],
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  'Votes à l\'Assemblée',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.grey[600],
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Cette section sera complétée prochainement avec les détails des votes du député.',
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: Colors.grey[500],
-                    height: 1.4,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-              ],
-            ),
-          ),
-
-          const SizedBox(height: 24),
-
-          // Sources
-          _buildSourcesCard(),
-
-          const SizedBox(height: 20),
-        ],
-      ),
-    );
+    return _VotesPageWidget(deputy: _deputy);
   }
 
   Widget _buildPerformancePage() {
@@ -1982,5 +1922,302 @@ class _DeputyDetailPageState extends State<DeputyDetailPage> {
         ],
       ),
     );
+  }
+}
+
+// Widget séparé pour la page des votes avec pagination infinie
+class _VotesPageWidget extends StatefulWidget {
+  final DeputyModel deputy;
+
+  const _VotesPageWidget({required this.deputy});
+
+  @override
+  State<_VotesPageWidget> createState() => _VotesPageWidgetState();
+}
+
+class _VotesPageWidgetState extends State<_VotesPageWidget> {
+  final List<Map<String, dynamic>> _votes = [];
+  bool _isLoading = false;
+  bool _hasMore = true;
+  int _offset = 0;
+  final int _limit = 20;
+  final ScrollController _scrollController = ScrollController();
+
+  @override
+  void initState() {
+    super.initState();
+    _loadVotes();
+    _scrollController.addListener(_onScroll);
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _onScroll() {
+    if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 200) {
+      if (!_isLoading && _hasMore) {
+        _loadVotes();
+      }
+    }
+  }
+
+  Future<void> _loadVotes() async {
+    if (_isLoading) return;
+
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      final result = await ApiService.getDeputyVotes(
+        widget.deputy.id,
+        limit: _limit,
+        offset: _offset,
+      );
+
+      if (result != null && result['success'] == true) {
+        final newVotes = List<Map<String, dynamic>>.from(result['data'] ?? []);
+        final pagination = result['pagination'];
+
+        setState(() {
+          _votes.addAll(newVotes);
+          _offset += _limit;
+          _hasMore = pagination['hasMore'] ?? false;
+          _isLoading = false;
+        });
+      } else {
+        setState(() {
+          _isLoading = false;
+          _hasMore = false;
+        });
+      }
+    } catch (e) {
+      print('❌ Erreur chargement votes: $e');
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView.builder(
+      controller: _scrollController,
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
+      itemCount: _votes.length + (_hasMore ? 1 : 0),
+      itemBuilder: (context, index) {
+        if (index == _votes.length) {
+          // Loading indicator à la fin
+          return Center(
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: CircularProgressIndicator(
+                color: const Color(0xFF556B2F),
+              ),
+            ),
+          );
+        }
+
+        final vote = _votes[index];
+        return _buildVoteCard(vote);
+      },
+    );
+  }
+
+  Widget _buildVoteCard(Map<String, dynamic> vote) {
+    final voteValue = vote['vote']?.toString() ?? '';
+    final scrutinNumero = vote['numero']?.toString() ?? '';
+    final scrutinDate = vote['date_scrutin']?.toString() ?? '';
+    final titre = vote['titre']?.toString() ?? '';
+    final sousTitre = vote['sous_titre']?.toString() ?? '';
+    final nbPour = vote['nb_pour'] ?? 0;
+    final nbContre = vote['nb_contre'] ?? 0;
+    final nbAbstentions = vote['nb_abstentions'] ?? 0;
+
+    // Couleur selon le vote
+    Color voteColor;
+    IconData voteIcon;
+    String voteLabel;
+
+    switch (voteValue.toLowerCase()) {
+      case 'pour':
+        voteColor = Colors.green;
+        voteIcon = Icons.thumb_up;
+        voteLabel = 'Pour';
+        break;
+      case 'contre':
+        voteColor = Colors.red;
+        voteIcon = Icons.thumb_down;
+        voteLabel = 'Contre';
+        break;
+      case 'abstention':
+        voteColor = Colors.orange;
+        voteIcon = Icons.remove_circle_outline;
+        voteLabel = 'Abstention';
+        break;
+      default:
+        voteColor = Colors.grey;
+        voteIcon = Icons.help_outline;
+        voteLabel = voteValue.isNotEmpty ? voteValue : 'Non renseigné';
+    }
+
+    // Déterminer le résultat du vote
+    final totalVotes = nbPour + nbContre + nbAbstentions;
+    final isAdopte = nbPour > nbContre;
+    final resultLabel = isAdopte ? 'Adopté' : 'Rejeté';
+    final resultColor = isAdopte ? Colors.green : Colors.red;
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      elevation: 2,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () {
+          // TODO: Navigation vers scrutin detail
+        },
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Header avec numéro et date
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  if (scrutinNumero.isNotEmpty)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF556B2F).withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        'Scrutin n°$scrutinNumero',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF556B2F),
+                        ),
+                      ),
+                    ),
+                  if (scrutinDate.isNotEmpty)
+                    Text(
+                      _formatDate(scrutinDate),
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey[600],
+                      ),
+                    ),
+                ],
+              ),
+              
+              const SizedBox(height: 12),
+
+              // Titre du scrutin
+              if (titre.isNotEmpty)
+                Text(
+                  titre,
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF2C3E50),
+                  ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              
+              if (sousTitre.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                Text(
+                  sousTitre,
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: Colors.grey[700],
+                  ),
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+
+              const SizedBox(height: 12),
+
+              // Vote du député et résultat
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  // Vote du député
+                  Row(
+                    children: [
+                      Icon(
+                        voteIcon,
+                        color: voteColor,
+                        size: 20,
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        voteLabel,
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                          color: voteColor,
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  // Résultat du scrutin avec les compteurs
+                  if (totalVotes > 0)
+                    Row(
+                      children: [
+                        // Compteurs
+                        Text(
+                          '$nbPour-$nbContre',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey[700],
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        // Badge résultat
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: resultColor.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            resultLabel,
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: resultColor.shade700,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  String _formatDate(String dateStr) {
+    try {
+      final date = DateTime.parse(dateStr);
+      return '${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year}';
+    } catch (e) {
+      return dateStr;
+    }
   }
 }

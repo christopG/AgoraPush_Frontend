@@ -7,6 +7,7 @@ import 'deputy_detail_page.dart';
 import 'scrutins_page.dart';
 import 'scrutins_autres_page.dart';
 import 'scrutin_detail_page.dart';
+import 'groupes_list_page.dart';
 import '../services/api_service.dart';
 import '../services/admin_auth_service.dart';
 import '../services/session_service.dart';
@@ -95,6 +96,9 @@ class _HomePageState extends State<HomePage> {
   bool isLoadingScrutins = true;
   ScrutinModel? scrutinDuJour; // Le dernier scrutin Motion/Loi
   
+  // Variables pour les groupes
+  int? groupesCount; // Nombre de groupes actifs
+  
   // Variables admin
   final AdminAuthService _adminAuthService = AdminAuthService();
   bool? _isAdmin;
@@ -105,6 +109,7 @@ class _HomePageState extends State<HomePage> {
     _loadDeputiesCount(); // Charger le nombre de députés au démarrage
     _loadUserDeputy(); // Charger le député de l'utilisateur
     _loadScrutinsCounts(); // Charger les compteurs de scrutins
+    _loadGroupesCount(); // Charger le nombre de groupes actifs
     _checkAdminStatus(); // Vérifier le statut admin
     deputyProvider.loadAllDeputies(); // Charger tous les députés dans le cache global
   }
@@ -128,6 +133,25 @@ class _HomePageState extends State<HomePage> {
       if (mounted) {
         setState(() {
           deputiesCount = 577;
+        });
+      }
+    }
+  }
+
+  // Méthode pour charger le nombre de groupes actifs
+  Future<void> _loadGroupesCount() async {
+    try {
+      final groupes = await ApiService.getActiveGroupesPolitiques();
+      if (mounted) {
+        setState(() {
+          groupesCount = groupes.length;
+        });
+      }
+    } catch (e) {
+      print('Erreur lors du chargement du nombre de groupes: $e');
+      if (mounted) {
+        setState(() {
+          groupesCount = null;
         });
       }
     }
@@ -580,23 +604,7 @@ class _HomePageState extends State<HomePage> {
               children: [
                 // Groupes
                 Expanded(
-                  child: _buildArt1CategoryCard(
-                    'Groupes',
-                    Icons.diversity_3_outlined,
-                    const LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [Color(0xFFBC8F8F), Color(0xFF8B6969)],
-                    ),
-                    160,
-                    'top-center',
-                    () {
-                      // Navigation vers page Groupes (à créer)
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Page Groupes en développement')),
-                      );
-                    },
-                  ),
+                  child: _buildGroupesCard(),
                 ),
                 const SizedBox(width: 15),
                 // Scrutins Autres
@@ -617,7 +625,8 @@ class _HomePageState extends State<HomePage> {
       LinearGradient gradient,
       double height,
       String shapePosition,
-      VoidCallback onTap) {
+      VoidCallback onTap,
+      {int? count}) {
     return GestureDetector(
       onTap: onTap,
       child: Stack(
@@ -693,6 +702,35 @@ class _HomePageState extends State<HomePage> {
 
           // Formes décoratives positionnées par rapport au bord extérieur de la carte
           ..._buildShapes(shapePosition),
+          
+          // Badge de compteur si count est fourni
+          if (count != null)
+            Positioned(
+              top: 8,
+              right: 8,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.15),
+                      blurRadius: 4,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: Text(
+                  '$count',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                    color: gradient.colors.first,
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
     );
@@ -1018,6 +1056,114 @@ class _HomePageState extends State<HomePage> {
 
           // Formes décoratives positionnées par rapport au bord extérieur de la carte
           ..._buildShapes('left-two-thirds'),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildGroupesCard() {
+    return GestureDetector(
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => const GroupesListPage()),
+      ),
+      child: Stack(
+        children: [
+          // Container principal de la carte
+          Container(
+            height: 160,
+            width: double.infinity,
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [Color(0xFFBC8F8F), Color(0xFF8B6969)],
+              ),
+              borderRadius: BorderRadius.circular(25),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.1),
+                  blurRadius: 15,
+                  offset: const Offset(0, 8),
+                ),
+              ],
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  // Row avec icône principale et badge
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      // Icône principale
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(15),
+                        ),
+                        child: const Icon(
+                          Icons.diversity_3_outlined,
+                          color: Colors.white,
+                          size: 24,
+                        ),
+                      ),
+
+                      // Badge avec le nombre de groupes
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.15),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: Colors.white.withOpacity(0.3),
+                            width: 1,
+                          ),
+                        ),
+                        child: groupesCount != null
+                            ? Text(
+                                '$groupesCount',
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : const SizedBox(
+                                width: 12,
+                                height: 12,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  valueColor: AlwaysStoppedAnimation<Color>(
+                                    Colors.white,
+                                  ),
+                                ),
+                              ),
+                      ),
+                    ],
+                  ),
+
+                  // Titre en bas
+                  const Text(
+                    'Groupes',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                      height: 1.2,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          // Formes décoratives
+          ..._buildShapes('top-center'),
         ],
       ),
     );

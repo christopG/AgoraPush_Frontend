@@ -188,9 +188,13 @@ class DeputyModel {
                json['id_circo']?.toString() ??
                _buildIdCirco(json['dep']?.toString(), json['codeCirco']?.toString()),
       libelle: json['libelle']?.toString() ?? json['libelle_crico']?.toString(),
-      libelleAb: json['libelleAb']?.toString() ?? json['libelle_abrege']?.toString(),
+      libelleAb: json['libelleAb']?.toString() ?? 
+                 json['libelle_abrege']?.toString() ?? 
+                 json['groupe_abrev']?.toString(),
       groupePolitiqueRef: json['groupePolitiqueRef']?.toString() ?? json['groupe_politique_ref']?.toString(),
-      famillePolLibelle: json['famillePolLibelle']?.toString() ?? json['famille_pol_libelle']?.toString(),
+      famillePolLibelle: json['famillePolLibelle']?.toString() ?? 
+                         json['famille_pol_libelle']?.toString() ?? 
+                         json['groupe']?.toString(),
       qualitePrincipal: json['qualitePrincipal']?.toString() ?? json['qualite_principale']?.toString(),
       organesRefs: json['organesRefs']?.toString() ?? json['organes_refs']?.toString(),
       mandatsResume: json['mandatsResume']?.toString() ?? json['mandats_resume']?.toString(),

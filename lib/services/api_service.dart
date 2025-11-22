@@ -248,6 +248,28 @@ class ApiService {
     }
   }
 
+  /// Récupère les groupes politiques actifs (filtrés par active=1)
+  static Future<List<dynamic>> getActiveGroupesPolitiques() async {
+    try {
+      final data = await _makeRequest(
+        '/api/groupes/politiques',
+        useCache: true,
+        cacheDuration: Duration(hours: 2), // Cache 2h car données assez stables
+      );
+
+      if (data != null && data['success'] == true) {
+        final groupes = data['groupes'] as List<dynamic>;
+        print('🏛️ ${groupes.length} groupes politiques actifs récupérés');
+        return groupes;
+      }
+      
+      return [];
+    } catch (e) {
+      print('❌ Erreur lors de la récupération des groupes politiques actifs: $e');
+      return [];
+    }
+  }
+
   /// Récupère tous les scrutins
   static Future<List<dynamic>> getAllScrutins() async {
     try {
@@ -381,6 +403,26 @@ class ApiService {
           ? _cacheTimestamps.values.reduce((a, b) => a.isBefore(b) ? a : b).toIso8601String()
           : null,
     };
+  }
+
+  /// Récupère les votes d'un député avec pagination
+  static Future<Map<String, dynamic>?> getDeputyVotes(String deputyId, {int limit = 20, int offset = 0}) async {
+    try {
+      final data = await _makeRequest(
+        '/api/deputies/$deputyId/votes?limit=$limit&offset=$offset',
+        useCache: false, // Pas de cache pour les votes (données dynamiques)
+      );
+
+      if (data != null && data['success'] == true) {
+        print('📊 ${data['data'].length} votes récupérés pour deputy $deputyId');
+        return data;
+      }
+      
+      return null;
+    } catch (e) {
+      print('❌ Erreur lors de la récupération des votes: $e');
+      return null;
+    }
   }
 
   /// Ferme le client HTTP

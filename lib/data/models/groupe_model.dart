@@ -60,18 +60,20 @@ class GroupeModel {
       couleurAssociee: json['couleur_associee'] as String?,
       effectif: json['effectif'] as int?,
       women: json['women'] as int?,
-      age: json['age'] != null ? (json['age'] as num).toDouble() : null,
+      age: json['age'] != null 
+          ? (json['age'] is String ? double.tryParse(json['age']) : (json['age'] as num).toDouble())
+          : null,
       scoreRose: json['score_rose'] != null
-          ? (json['score_rose'] as num).toDouble()
+          ? (json['score_rose'] is String ? double.tryParse(json['score_rose']) : (json['score_rose'] as num).toDouble())
           : null,
       scoreCohesion: json['socre_cohesion'] != null
-          ? (json['socre_cohesion'] as num).toDouble()
+          ? (json['socre_cohesion'] is String ? double.tryParse(json['socre_cohesion']) : (json['socre_cohesion'] as num).toDouble())
           : null,
       scoreParticipation: json['score_participation'] != null
-          ? (json['score_participation'] as num).toDouble()
+          ? (json['score_participation'] is String ? double.tryParse(json['score_participation']) : (json['score_participation'] as num).toDouble())
           : null,
       scoreMajorite: json['score_majorite'] != null
-          ? (json['score_majorite'] as num).toDouble()
+          ? (json['score_majorite'] is String ? double.tryParse(json['score_majorite']) : (json['score_majorite'] as num).toDouble())
           : null,
       active: json['active'] as int?,
       dateMaj: json['date_maj'] != null
