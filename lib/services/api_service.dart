@@ -248,6 +248,49 @@ class ApiService {
     }
   }
 
+  /// Récupère tous les scrutins
+  static Future<List<dynamic>> getAllScrutins() async {
+    try {
+      final data = await _makeRequest(
+        '/api/scrutins',
+        useCache: true,
+        cacheDuration: Duration(minutes: 30),
+      );
+
+      if (data != null && data['success'] == true) {
+        final scrutins = data['data'] as List<dynamic>;
+        print('📊 ${scrutins.length} scrutins récupérés');
+        return scrutins;
+      }
+      
+      return [];
+    } catch (e) {
+      print('❌ Erreur lors de la récupération des scrutins: $e');
+      return [];
+    }
+  }
+
+  static Future<List<dynamic>> getAllThemes() async {
+    try {
+      final data = await _makeRequest(
+        '/api/themes',
+        useCache: true,
+        cacheDuration: Duration(hours: 1),
+      );
+
+      if (data != null && data['success'] == true) {
+        final themes = data['data'] as List<dynamic>;
+        print('🏷️ ${themes.length} thèmes récupérés');
+        return themes;
+      }
+      
+      return [];
+    } catch (e) {
+      print('❌ Erreur lors de la récupération des thèmes: $e');
+      return [];
+    }
+  }
+
   /// Nettoie le cache local
   static void clearCache() {
     _cache.clear();

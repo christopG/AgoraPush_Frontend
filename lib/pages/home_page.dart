@@ -2,9 +2,10 @@ import 'package:flutter/material.dart';
 import 'account_page.dart';
 import 'my_stats_page.dart';
 import 'deputies_list_page.dart';
-import 'old_votes_page.dart';
 import 'admin_page.dart';
 import 'deputy_detail_page.dart';
+import 'scrutins_page.dart';
+import 'scrutins_autres_page.dart';
 import '../services/api_service.dart';
 import '../services/admin_auth_service.dart';
 import '../services/session_service.dart';
@@ -85,6 +86,12 @@ class _HomePageState extends State<HomePage> {
   DeputyModel? userDeputy; // Variable pour stocker le député de l'utilisateur
   bool isLoadingDeputy = false; // État de chargement du député
   
+  // Variables pour les scrutins
+  int motionCount = 0; // Motion de censure + Motion de rejet
+  int loiCount = 0; // Projet de Loi + Proposition de Loi
+  int autresScrutinsCount = 0; // Tous les autres scrutins
+  bool isLoadingScrutins = true;
+  
   // Variables admin
   final AdminAuthService _adminAuthService = AdminAuthService();
   bool? _isAdmin;
@@ -94,6 +101,7 @@ class _HomePageState extends State<HomePage> {
     super.initState();
     _loadDeputiesCount(); // Charger le nombre de députés au démarrage
     _loadUserDeputy(); // Charger le député de l'utilisateur
+    _loadScrutinsCounts(); // Charger les compteurs de scrutins
     _checkAdminStatus(); // Vérifier le statut admin
   }
 
@@ -116,6 +124,51 @@ class _HomePageState extends State<HomePage> {
       if (mounted) {
         setState(() {
           deputiesCount = 577;
+        });
+      }
+    }
+  }
+
+  // Méthode pour charger les compteurs de scrutins depuis l'API
+  Future<void> _loadScrutinsCounts() async {
+    try {
+      final scrutins = await ApiService.getAllScrutins();
+      
+      if (mounted) {
+        setState(() {
+          // Compter Motion de censure + Motion de rejet
+          motionCount = scrutins.where((s) => 
+            s['type_scrutin'] == 'Motion de censure' || 
+            s['type_scrutin'] == 'Motion de rejet'
+          ).length;
+          
+          // Compter Projet de Loi + Proposition de Loi
+          loiCount = scrutins.where((s) => 
+            s['type_scrutin'] == 'Projet de loi' || 
+            s['type_scrutin'] == 'Proposition de loi'
+          ).length;
+          
+          // Compter tous les autres scrutins (exclure les 4 types principaux)
+          const excludedTypes = [
+            'Motion de censure',
+            'Motion de rejet',
+            'Projet de loi',
+            'Proposition de loi',
+          ];
+          autresScrutinsCount = scrutins.where((s) {
+            final type = s['type_scrutin'];
+            return type != null && !excludedTypes.contains(type);
+          }).length;
+          
+          isLoadingScrutins = false;
+        });
+        print('📊 Scrutins comptés - Motions: $motionCount, Lois: $loiCount, Autres: $autresScrutinsCount');
+      }
+    } catch (e) {
+      print('❌ Erreur lors du chargement des scrutins: $e');
+      if (mounted) {
+        setState(() {
+          isLoadingScrutins = false;
         });
       }
     }
@@ -318,7 +371,7 @@ class _HomePageState extends State<HomePage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Grid 2x2 style Art1Gallery - Toutes les cartes même taille (largeur ET hauteur)
+        // Grid 2x3 style Art1Gallery - Toutes les cartes même taille (largeur ET hauteur)
         Column(
           children: [
             // Première ligne
@@ -359,6 +412,37 @@ class _HomePageState extends State<HomePage> {
                 // Anciens votes - Carte améliorée
                 Expanded(
                   child: _buildLatestVotesCard(),
+                ),
+              ],
+            ),
+            const SizedBox(height: 15),
+            // Troisième ligne
+            Row(
+              children: [
+                // Groupes
+                Expanded(
+                  child: _buildArt1CategoryCard(
+                    'Groupes',
+                    Icons.diversity_3_outlined,
+                    const LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [Color(0xFFBC8F8F), Color(0xFF8B6969)],
+                    ),
+                    160,
+                    'top-center',
+                    () {
+                      // Navigation vers page Groupes (à créer)
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Page Groupes en développement')),
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(width: 15),
+                // Scrutins Autres
+                Expanded(
+                  child: _buildScrutinsAutresCard(),
                 ),
               ],
             ),
@@ -892,7 +976,7 @@ class _HomePageState extends State<HomePage> {
     return GestureDetector(
       onTap: () => Navigator.push(
         context,
-        MaterialPageRoute(builder: (context) => const OldVotesPage()),
+        MaterialPageRoute(builder: (context) => const ScrutinsPage()),
       ),
       child: Stack(
         children: [
@@ -941,85 +1025,74 @@ class _HomePageState extends State<HomePage> {
 
                       // Colonnes de badges à droite
                       Flexible(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.end,
-                          children: [
-                            // Badge Loi avec le nombre
-                            Container(
-                              margin: const EdgeInsets.only(bottom: 4),
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 6, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: Colors.white.withOpacity(0.15),
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(
-                                  color: Colors.white.withOpacity(0.3),
-                                  width: 1,
+                        child: isLoadingScrutins
+                            ? const Padding(
+                                padding: EdgeInsets.all(8.0),
+                                child: SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                  ),
                                 ),
-                              ),
-                              child: const Text(
-                                'Loi : 245',
-                                style: TextStyle(
-                                  fontSize: 8,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.white,
-                                ),
-                              ),
-                            ),
+                              )
+                            : Column(
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                children: [
+                                  // Badge Loi (Projet + Proposition)
+                                  Container(
+                                    margin: const EdgeInsets.only(bottom: 4),
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 6, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white.withOpacity(0.15),
+                                      borderRadius: BorderRadius.circular(8),
+                                      border: Border.all(
+                                        color: Colors.white.withOpacity(0.3),
+                                        width: 1,
+                                      ),
+                                    ),
+                                    child: Text(
+                                      'Loi : $loiCount',
+                                      style: const TextStyle(
+                                        fontSize: 8,
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.white,
+                                      ),
+                                    ),
+                                  ),
 
-                            // Badge Motion de rejet
-                            Container(
-                              margin: const EdgeInsets.only(bottom: 4),
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 6, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: Colors.white.withOpacity(0.15),
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(
-                                  color: Colors.white.withOpacity(0.3),
-                                  width: 1,
-                                ),
+                                  // Badge Motion (Censure + Rejet)
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 6, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white.withOpacity(0.15),
+                                      borderRadius: BorderRadius.circular(8),
+                                      border: Border.all(
+                                        color: Colors.white.withOpacity(0.3),
+                                        width: 1,
+                                      ),
+                                    ),
+                                    child: Text(
+                                      'Motion : $motionCount',
+                                      style: const TextStyle(
+                                        fontSize: 8,
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.white,
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ),
-                              child: const Text(
-                                'M. rejet : 12',
-                                style: TextStyle(
-                                  fontSize: 8,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.white,
-                                ),
-                              ),
-                            ),
-
-                            // Badge Motion de censure
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 6, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: Colors.white.withOpacity(0.15),
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(
-                                  color: Colors.white.withOpacity(0.3),
-                                  width: 1,
-                                ),
-                              ),
-                              child: const Text(
-                                'M. censure : 3',
-                                style: TextStyle(
-                                  fontSize: 8,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.white,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
                       ),
                     ],
                   ),
 
                   // Titre
                   const Text(
-                    'Anciens votes',
+                    'Motion et\nprojet de Loi',
                     style: TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
@@ -1034,6 +1107,113 @@ class _HomePageState extends State<HomePage> {
 
           // Formes décoratives positionnées par rapport au bord extérieur de la carte
           ..._buildShapes('bottom-right'),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildScrutinsAutresCard() {
+    return GestureDetector(
+      onTap: () => Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => const ScrutinsAutresPage()),
+      ),
+      child: Stack(
+        children: [
+          // Container principal de la carte
+          Container(
+            height: 160,
+            width: double.infinity,
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [Color(0xFF9370DB), Color(0xFF7B68EE)],
+              ),
+              borderRadius: BorderRadius.circular(25),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.1),
+                  blurRadius: 15,
+                  offset: const Offset(0, 8),
+                ),
+              ],
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  // Row avec icône et badge
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.2),
+                          borderRadius: BorderRadius.circular(15),
+                        ),
+                        child: const Icon(
+                          Icons.how_to_vote_outlined,
+                          color: Colors.white,
+                          size: 24,
+                        ),
+                      ),
+
+                      // Badge avec compteur
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.15),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: Colors.white.withOpacity(0.3),
+                            width: 1,
+                          ),
+                        ),
+                        child: isLoadingScrutins
+                            ? const SizedBox(
+                                width: 12,
+                                height: 12,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  valueColor: AlwaysStoppedAnimation<Color>(
+                                    Colors.white,
+                                  ),
+                                ),
+                              )
+                            : Text(
+                                '$autresScrutinsCount',
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.white,
+                                ),
+                              ),
+                      ),
+                    ],
+                  ),
+
+                  // Titre
+                  const Text(
+                    'Scrutins\nAutres',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                      height: 1.2,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          // Formes décoratives
+          ..._buildShapes('left-two-thirds'),
         ],
       ),
     );

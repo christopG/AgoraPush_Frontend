@@ -776,48 +776,49 @@ class _DeputiesListPageState extends State<DeputiesListPage> {
       body: SafeArea(
         child: Column(
           children: [
-            // Header avec titre et bouton retour modernisé
-            Container(
-              padding: const EdgeInsets.all(20),
-              decoration: const BoxDecoration(
-                color: Color(0xFFF5F7F2),
-                borderRadius:
-                    BorderRadius.vertical(bottom: Radius.circular(24)),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      GestureDetector(
-                        onTap: () => Navigator.pop(context),
-                        child: Container(
-                          width: 40,
-                          height: 40,
-                          decoration: const BoxDecoration(
-                            color: Colors.white,
-                            shape: BoxShape.circle,
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black12,
-                                blurRadius: 8,
-                                offset: Offset(0, 2),
-                              ),
-                            ],
-                          ),
-                          child: const Icon(
-                            Icons.arrow_back,
-                            size: 20,
-                            color: Color(0xFF556B2F),
+            // Header avec titre et bouton retour modernisé (se cache au scroll)
+            if (_showHeader)
+              Container(
+                padding: const EdgeInsets.all(20),
+                decoration: const BoxDecoration(
+                  color: Color(0xFFF5F7F2),
+                  borderRadius:
+                      BorderRadius.vertical(bottom: Radius.circular(24)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        GestureDetector(
+                          onTap: () => Navigator.pop(context),
+                          child: Container(
+                            width: 40,
+                            height: 40,
+                            decoration: const BoxDecoration(
+                              color: Colors.white,
+                              shape: BoxShape.circle,
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black12,
+                                  blurRadius: 8,
+                                  offset: Offset(0, 2),
+                                ),
+                              ],
+                            ),
+                            child: const Icon(
+                              Icons.arrow_back,
+                              size: 20,
+                              color: Color(0xFF556B2F),
+                            ),
                           ),
                         ),
-                      ),
-                      const SizedBox(width: 16),
-                      const Expanded(
-                        child: Text(
-                          'Députés',
-                          style: TextStyle(
-                            fontSize: 28,
+                        const SizedBox(width: 16),
+                        const Expanded(
+                          child: Text(
+                            'Députés',
+                            style: TextStyle(
+                              fontSize: 28,
                             fontWeight: FontWeight.bold,
                             color: Color(0xFF556B2F),
                           ),
@@ -838,7 +839,7 @@ class _DeputiesListPageState extends State<DeputiesListPage> {
               ),
             ),
 
-            // Sélecteur de mode modernisé avec thème vert
+            // Sélecteur de mode modernisé avec thème vert (toujours visible)
             Container(
               margin: const EdgeInsets.fromLTRB(20, 0, 20, 20),
               decoration: BoxDecoration(
@@ -972,98 +973,113 @@ class _DeputiesListPageState extends State<DeputiesListPage> {
   Widget _buildSearchView() {
     return Column(
       children: [
-        // Barre de recherche avec bouton filtres (se cache lors du scroll)
-        if (_showHeader)
-          Container(
-            margin: const EdgeInsets.only(bottom: 12),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(35),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.04),
-                  blurRadius: 15,
-                  offset: const Offset(0, 4),
-                ),
-              ],
-            ),
-            child: Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: _searchController,
-                  focusNode: _searchFocusNode,
-                  decoration: InputDecoration(
-                    hintText: 'Nom, prénom...',
-                    hintStyle: TextStyle(
-                      color: const Color(0xFF556B2F).withOpacity(0.6),
-                      fontSize: 16,
-                      fontWeight: FontWeight.w400,
+        // Barre de recherche avec bouton filtres (toujours visible)
+        Focus(
+          onFocusChange: (hasFocus) {
+            setState(() {});
+          },
+          child: Builder(
+            builder: (context) {
+              final hasFocus = Focus.of(context).hasFocus;
+              return Container(
+                margin: const EdgeInsets.only(bottom: 12),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(35),
+                  border: Border.all(
+                    color: hasFocus ? const Color(0xFF556B2F) : Colors.transparent,
+                    width: 2,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.04),
+                      blurRadius: 15,
+                      offset: const Offset(0, 4),
                     ),
-                    prefixIcon: Icon(
-                      Icons.search,
-                      color: const Color(0xFF556B2F).withOpacity(0.7),
-                      size: 22,
+                  ],
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _searchController,
+                        focusNode: _searchFocusNode,
+                        decoration: InputDecoration(
+                          hintText: 'Nom, prénom...',
+                          hintStyle: TextStyle(
+                            color: const Color(0xFF556B2F).withOpacity(0.6),
+                            fontSize: 16,
+                            fontWeight: FontWeight.w400,
+                          ),
+                          prefixIcon: Icon(
+                            Icons.search,
+                            color: const Color(0xFF556B2F).withOpacity(0.7),
+                            size: 22,
+                          ),
+                          suffixIcon: _searchController.text.isNotEmpty
+                              ? GestureDetector(
+                                  onTap: () {
+                                    _searchController.clear();
+                                    _applyFilters();
+                                  },
+                                  child: Container(
+                                    margin: const EdgeInsets.all(12),
+                                    padding: const EdgeInsets.all(4),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFF556B2F).withOpacity(0.1),
+                                      shape: BoxShape.circle,
+                                    ),
+                                    child: Icon(
+                                      Icons.close,
+                                      size: 16,
+                                      color: const Color(0xFF556B2F).withOpacity(0.8),
+                                    ),
+                                  ),
+                                )
+                              : null,
+                          border: InputBorder.none,
+                          enabledBorder: InputBorder.none,
+                          focusedBorder: InputBorder.none,
+                          contentPadding:
+                              const EdgeInsets.symmetric(vertical: 18, horizontal: 20),
+                        ),
+                        style: const TextStyle(
+                          fontSize: 16,
+                          color: Color(0xFF556B2F),
+                          fontWeight: FontWeight.w500,
+                        ),
+                        onChanged: (value) => _applyFilters(),
+                      ),
                     ),
-                    suffixIcon: _searchController.text.isNotEmpty
-                        ? GestureDetector(
-                            onTap: () {
-                              _searchController.clear();
-                              _applyFilters();
-                            },
-                            child: Container(
-                              margin: const EdgeInsets.all(12),
-                              padding: const EdgeInsets.all(4),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFF556B2F).withOpacity(0.1),
-                                shape: BoxShape.circle,
-                              ),
-                              child: Icon(
-                                Icons.close,
-                                size: 16,
-                                color: const Color(0xFF556B2F).withOpacity(0.8),
-                              ),
-                            ),
-                          )
-                        : null,
-                    border: InputBorder.none,
-                    contentPadding:
-                        const EdgeInsets.symmetric(vertical: 18, horizontal: 20),
-                  ),
-                  style: const TextStyle(
-                    fontSize: 16,
-                    color: Color(0xFF556B2F),
-                    fontWeight: FontWeight.w500,
-                  ),
-                  onChanged: (value) => _applyFilters(),
+                    // Bouton filtres
+                    GestureDetector(
+                      onTap: () {
+                        setState(() {
+                          _showFilters = !_showFilters;
+                        });
+                      },
+                      child: Container(
+                        margin: const EdgeInsets.only(right: 12),
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: _hasActiveFilters()
+                              ? const Color(0xFF556B2F)
+                              : const Color(0xFF556B2F).withOpacity(0.1),
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(
+                          Icons.filter_list,
+                          color: _hasActiveFilters()
+                              ? Colors.white
+                              : const Color(0xFF556B2F).withOpacity(0.8),
+                          size: 20,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-              ),
-              // Bouton filtres
-              GestureDetector(
-                onTap: () {
-                  setState(() {
-                    _showFilters = !_showFilters;
-                  });
-                },
-                child: Container(
-                  margin: const EdgeInsets.only(right: 12),
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: _hasActiveFilters()
-                        ? const Color(0xFF556B2F)
-                        : const Color(0xFF556B2F).withOpacity(0.1),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(
-                    Icons.filter_list,
-                    color: _hasActiveFilters()
-                        ? Colors.white
-                        : const Color(0xFF556B2F).withOpacity(0.8),
-                    size: 20,
-                  ),
-                ),
-              ),
-            ],
+              );
+            },
           ),
         ),
         
