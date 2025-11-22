@@ -1068,6 +1068,8 @@ class _DeputyDetailPageState extends State<DeputyDetailPage> {
       'GEVI': 'Groupe d\'étude à vocation internationale',
       'GA': 'Groupes d\'amitié',
       'DELEG': 'Délégation',
+      'MISINFO': 'Mission d\'informations',
+      'ORGEXTPARL': 'Organismes extra-parlementaires',
     };
 
     typeOrder.forEach((typeCode, typeLabel) {
@@ -1081,6 +1083,11 @@ class _DeputyDetailPageState extends State<DeputyDetailPage> {
     mandatsByType.forEach((typeCode, mandats) {
       // Nettoyer le typeCode des crochets éventuels
       final cleanTypeCode = typeCode.replaceAll('[', '').replaceAll(']', '').trim();
+      
+      // Ignore if original typeCode contains brackets (malformed data)
+      if (typeCode.contains('[') || typeCode.contains(']')) {
+        return; // Skip cards with brackets in title
+      }
       
       if (!typeOrder.containsKey(cleanTypeCode) && 
           cleanTypeCode != 'PARPOL' && 
@@ -1180,43 +1187,56 @@ class _DeputyDetailPageState extends State<DeputyDetailPage> {
     final libelle = _organeLibelleCache[organeRef] ?? organeRef;
     
     return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         Container(
-          margin: const EdgeInsets.only(top: 4),
-          width: 6,
-          height: 6,
-          decoration: const BoxDecoration(
-            color: Color(0xFF556B2F),
+          width: 8,
+          height: 8,
+          decoration: BoxDecoration(
+            color: const Color(0xFF556B2F),
             shape: BoxShape.circle,
+            boxShadow: [
+              BoxShadow(
+                color: const Color(0xFF556B2F).withOpacity(0.3),
+                blurRadius: 4,
+                offset: const Offset(0, 1),
+              ),
+            ],
           ),
         ),
-        const SizedBox(width: 12),
+        const SizedBox(width: 16),
         Expanded(
-          child: RichText(
-            text: TextSpan(
-              style: const TextStyle(
-                fontSize: 15,
-                color: Colors.black87,
-                height: 1.5,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                libelle,
+                style: const TextStyle(
+                  fontSize: 15,
+                  color: Colors.black87,
+                  height: 1.4,
+                  fontWeight: FontWeight.w500,
+                ),
               ),
-              children: [
-                TextSpan(text: libelle),
-                if (qualite.isNotEmpty) ...[
-                  const TextSpan(
-                    text: ' : ',
-                    style: TextStyle(color: Colors.grey),
+              if (qualite.isNotEmpty) ...[
+                const SizedBox(height: 2),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF556B2F).withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(4),
                   ),
-                  TextSpan(
-                    text: qualite,
+                  child: Text(
+                    qualite,
                     style: const TextStyle(
+                      fontSize: 13,
                       fontWeight: FontWeight.w600,
                       color: Color(0xFF556B2F),
                     ),
                   ),
-                ],
+                ),
               ],
-            ),
+            ],
           ),
         ),
       ],
